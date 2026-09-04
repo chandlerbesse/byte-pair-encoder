@@ -2,53 +2,99 @@ import string
 import re
 import numpy as np
 
+def clean_corpus(text):
+    re_text = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", text)    # Removes all apostrophes, combining contractions
+    re_text = re.sub(r"[^a-zA-Z]+", " ", re_text).strip()   # Removes all characters not in vocabulary
+    return re_text
+
+def build_padded_array(text, padding_value=-1):
+    
+    word_lengths = [len(w) for w in text]
+    max_word_length = max(word_lengths)
+
+    padded_arr = np.full((len(text), max_word_length), padding_value)  
+
+    for i, word in enumerate(text):
+        padded_arr[i, :len(word)] = word  
+
+    return padded_arr
+
+def find_most_frequent_pair(padded_arr, padding_value):
+    left_vals = padded_arr[:, :-1]
+    right_vals = padded_arr[:, 1:]
+
+    valid_char_mask = (left_vals != padding_value) & (right_vals != padding_value)
+    left_vals = left_vals[valid_char_mask]
+    right_vals = right_vals[valid_char_mask]
+
+    pairs = np.column_stack((left_vals, right_vals))
+    unique_pairs, first_idx, counts = np.unique(pairs, axis=0, return_index=True, return_counts=True)
+
+    highest_count = np.max(counts)
+    tie_indices = np.where(counts == highest_count)[0]
+    tied_first_occurrences = first_idx[tie_indices]
+    winner_position = np.argmin(tied_first_occurrences)
+    most_freq_idx_unique = tie_indices[winner_position]
+
+    most_freq_pair = unique_pairs[most_freq_idx_unique]
+    left_idx = most_freq_pair[0]
+    right_idx = most_freq_pair[1]
+    
+    return left_idx, right_idx, highest_count
+
+
 V = list(string.ascii_letters)  # Set of all upper and lowercase letters
 V.insert(0, "_")                # Boundary/Stop token
 
 stoi = {ch: i for i, ch in enumerate(V)}
 itos = {i: ch for ch, i in stoi.items()}
 
-text = "this there that sat what when bat mere her here are hare set."
+text = "this there that sat what when bat mere her here are hare set. !!!"
 
-# Using regex
-re_text = re.sub(r"([a-zA-Z])'([a-zA-Z])", "", text)    # Removes all apostrophes, combining contractions
-re_text = re.sub(r"[^a-zA-Z]+", " ", re_text).strip()   # Removes all characters not in vocabulary
+cleaned_text = clean_corpus(text)
+print(f"Corpus: {cleaned_text}\n")
 
-# words = [word + "_" for word in re_text.split()]  # List of list
-words_idx = [[stoi[c] for c in word + "_"] for word in re_text.split()]
-word_lengths = [len(w) for w in words_idx]
-max_word_length = max(word_lengths)
+words_idx = [[stoi[c] for c in word + "_"] for word in cleaned_text.split()]
 
-padding_value = -1
-padded_words = np.full((len(words_idx), max_word_length), padding_value)  # Creates a (len(wrod_idx), max_word_length) array filled with -1s
+k = 10
+merges = {}
 
-for i, word in enumerate(words_idx):
-    padded_words[i, :len(word)] = word  # Replace overlapping elements in row 'i' with stoi values for that word
+for i in range(k):
+    padded_text = build_padded_array(words_idx)
 
-left = padded_words[:, :-1]
-right = padded_words[:, 1:]
-valid_mask = (left != padding_value) & (right != padding_value)  # mask to remove padding values
+    left_value, right_value, highest_count = find_most_frequent_pair(padded_text, -1)
 
-real_lefts = left[valid_mask]
-real_rights = right[valid_mask]
+    pair = (itos[left_value], itos[right_value]) 
+    merged_char = pair[0] + pair[1]
+    merged_value = len(V) 
 
-print(real_lefts)
-print(real_rights)
+    # Update tables
+    merges[merged_char] = len(merges)
+    V.append(merged_char)
+    stoi[merged_char] = merged_value
+    itos[merged_value] = itos[left_value] + itos[right_value]
 
-vocab_length = len(V)
-combined = real_lefts * vocab_length + real_rights
-values, counts = np.unique(combined, return_counts=True)
+    print("Pair:", pair)
+    print(f"Merges: {merges}")
 
-max_count = np.max(counts)
-max_index = np.argmax(counts)
+    left_values = padded_text[:, :-1]
+    right_values = padded_text[:, 1:]
 
-recovered_pairs = (values // vocab_length, values % vocab_length)
-left_idx = recovered_pairs[0][max_index]
-right_idx = recovered_pairs[1][max_index]
-max_pair = (itos[left_idx], itos[right_idx])
-# max_pair = (itos[recovered_pairs[0][max_index]], itos[recovered_pairs[1][max_index]])
+    merge_value = len(V) - 1  # re = 53
+    mask = (left_values == left_value) & (right_values == right_value)
 
-print(max_pair)
-merge = max_pair[0] + max_pair[1]
-merges = [merge]
-V.append(merge)
+    if left_value != right_value:
+        print("  - Branch 1 --> vectorization\n")
+        padded_text[:, :-1][mask] = merge_value
+        padded_text[:, 1:][mask] = -1
+
+    else:
+        print("  - Branch 2: loop\n")
+        for row in padded_text:
+            for j in range(len(row) - 1):
+                if row[j] == left_value and row[j + 1] == right_value:
+                    row[j] = merge_value
+                    row[j + 1] = -1
+
+    filtered_arr = [row[row != -1] for row in padded_text]
+    words_idx = build_padded_array(filtered_arr, -1)
