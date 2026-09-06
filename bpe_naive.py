@@ -1,103 +1,96 @@
 import string
 import re
+import time
+from collections import Counter
 
-# BPE Learner
-V = list(string.ascii_letters)  # Set of all upper and lowercase letters
-V.insert(0, "_")                # Boundary/Stop token
+vocab = list(string.ascii_letters)
+vocab.insert(0, "_")
+k = int(input("Enter number of iterations: > "))
 
-# sample_text = "!!!@&^!!!.123!!!!   Let's test out the `'.maketrans'` & `'.translate'` funcs!1!  hi Lezbo"
-training_text = "this there that sat what when bat mere her here are hare set."
+def clean_corpus(text):
+    re_corpus = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", text)
+    re_corpus = re.sub(r"[^a-zA-Z]+", " ", re_corpus).strip()
+    return re_corpus
 
-# Using regex
-re_training_text = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", training_text) # Removes apostrophes specifically between two letters
-re_training_text = re.sub(r"[^a-zA-Z]+", " ", re_training_text).strip()     # Removes 1 or more consecutive chars not in [a-zA-Z]
+corpus = "this there that sat what when bat mere her here are hare set" # there there there"
+cleaned_corpus = clean_corpus(corpus)
+print(f"Cleaned corpus:\n\"{cleaned_corpus}\"\n")
 
-# re_tokens = [word + "_" for word in re_sample_text.split()]
-re_tokens = [[c for c in word + "_"] for word in re_training_text.split()]
+start_time = time.perf_counter()
 
-k = 5
-pair_freq = {}
+# words = [word for word in cleaned_corpus.split()]
+unique_word_counts = Counter(cleaned_corpus.split())
+# tokenized_words = [[c for c in word + "_"] for word in unique_word_counts]
+tokenized_words = {word: [c for c in word + "_"] for word in unique_word_counts}
+
 merges = {}
 
-print("BPE Training:")
-for i in range(k):
-    for token in re_tokens:
-        for j in range(len(token) - 1):
-            key = "".join(token[j:j+2])
-            value = pair_freq.get(key, 0)
-            pair_freq[key] = value + 1
+print("Training BPE:")
+for iter_num in range(k):
+    adjacent_pairs = {}
 
-    most_freq_pair = max(pair_freq, key=pair_freq.get)
-    V.append(most_freq_pair)
-    merges[most_freq_pair] = len(merges)
-    # print(merges)
-    # print("most_freq_pair:", most_freq_pair)
-    # print("max_count:", pair_freq[most_freq_pair])
-    print(f" - Iter {i+1}: '{most_freq_pair}' added to vocabulary")
+    for word_id, word_tokens in tokenized_words.items():
+        multiplier = unique_word_counts[word_id]
 
-    # pair_freq = {key: 0 for key in pair_freq}  # Resets the dictionary counts so they don't accumulate
-    pair_freq.clear()  # Clears the entire dictionary so ties will always default to the pair that appears first
+        for i in range( len(word_tokens) - 1 ):
+            pair = (word_tokens[i], word_tokens[i+1])
+            adjacent_pairs[pair] = adjacent_pairs.get(pair, 0) + multiplier
 
-    for token in re_tokens:
-        for e, char in enumerate(token):
-            if e < len(token)-1 and char + token[e+1] == most_freq_pair:
-                token[e:e+2] = [token[e] + token[e+1]]  # Merges characters
+        # adjacent_pairs = {key: value * multiplier for key, value in adjacent_pairs.items()}
 
-# print(f"\nmerges: {merges}")
-print("=" * 50)
+    if not adjacent_pairs:
+        print("No more pairs to merge.")
+        break
+    
+    max_pair = max(adjacent_pairs, key=adjacent_pairs.get)
 
-# BPE Segmenter
-print("\nBPE Segmenter:")
-test_text = "where   tha't 'hate''' @_!shear** *.* chat hear!"
+    left_char = max_pair[0]
+    right_char = max_pair[1]
+    # Alternatively: left_char, right_char = max_pair 
+    
+    merges[max_pair] = len(merges)
+    vocab.append(left_char + right_char)
 
-re_test_text = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", test_text) # Removes apostrophes specifically between two letters
-re_test_text = re.sub(r"[^a-zA-Z]+", " ", re_test_text).strip()     # # Removes 1 or more consecutive chars not in [a-zA-Z]
+    print(f"- Merging {max_pair} (Count: {adjacent_pairs[max_pair]})")
 
-test_tokens = [[c for c in word + "_"] for word in re_test_text.split()]
-print(f"Original text: {test_text}")
-print("Cleaned text:", re_test_text)
-print("\nmerge ranks:", merges, "\n")
+    # Merging
+    for word_id, word_tokens in tokenized_words.items():
+        i = 0
+        while i < len(word_tokens) - 1:
+            if word_tokens[i] == left_char and word_tokens[i+1] == right_char:
+                # Merge the two elements
+                word_tokens[i:i+2] = [left_char + right_char]
+            else:
+                i += 1
 
-result = []
+end_time = time.perf_counter()
+elapsed_time = end_time - start_time
 
-for iter, word in enumerate(test_tokens):
-    active = True
-    while active:
+print(f"Training time: {elapsed_time:.5f} seconds")
 
-        adj_pairs = []
-        lowest_rank = len(merges)
-        left_idx = -1
-        right_idx = -1
+print("\nFinal Merges Dict:", merges)
+print("Final vocabulary:", vocab)
+# for word in tokenized_words:
+#     print(word)
 
-        # print("\nword:", word)
-        for e, char in enumerate(word):
+# Segmenter
+text = "where   tha't 'hate''' @_!shear** *.* chat hear!"
+cleaned_text = clean_corpus(text)
+tokenized_text = [[c for c in word + "_"] for word in cleaned_text.split()]
 
-            if e < len(word)-1:
-                pair = char + word[e+1]
-                # print(left, right)
+for pair in merges:
+    left_char, right_char = pair
 
-                if pair in merges.keys() and merges[pair] < lowest_rank:
-                    lowest_rank = merges[pair]
-                    left_idx = e
-                    right_idx = e+1
-                adj_pairs.append(char + word[e+1])
+    for word_tokens in tokenized_text:
+        i = 0
+        while i < len(word_tokens) - 1:
+            if word_tokens[i] == left_char and word_tokens[i+1] == right_char:
+                word_tokens[i:i+2] = [left_char + right_char]
+            else:
+                i += 1
 
-        # print("adj_pairs", adj_pairs)
-        # print("lowest_rank:", lowest_rank)
-        # print(f"merge pair: ({left_idx}, {right_idx})")
+# for word in tokenized_text:
+#     print(word)
 
-        if left_idx == -1 and right_idx == -1:
-            # print("break: no pairs in vocabulary")
-            active = False
-            break
-        word[left_idx:right_idx + 1] = [word[left_idx] + word[right_idx]]
-        left_idx = -1
-        right_idx = -1
-
-        # print("word:", word)
-
-    result.append(word)
-
-# Final result after segmenting
-formatted_result = ["|".join(word) for word in result]
-print(f"Result: {' '.join(formatted_result)}")
+segmented_text = " ".join(["|".join(word) for word in tokenized_text]).strip()
+print(f"\n{segmented_text}")
