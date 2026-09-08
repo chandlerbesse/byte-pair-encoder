@@ -1,6 +1,8 @@
 import string
 import re
 import numpy as np
+import time
+from collections import Counter
 
 def clean_corpus(text):
     re_text = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", text)    # Removes all apostrophes, combining contractions
@@ -19,26 +21,33 @@ def build_padded_array(text, padding_value=-1):
 
     return padded_arr
 
-def find_most_frequent_pair(padded_arr, padding_value):
+def find_most_frequent_pair(padded_arr, counts, vocab, padding_value=-1):
     left_vals = padded_arr[:, :-1]
     right_vals = padded_arr[:, 1:]
+    weights = np.broadcast_to(counts[:, None], left_vals.shape)
 
     valid_char_mask = (left_vals != padding_value) & (right_vals != padding_value)
+
+    # Apply mask, returning three 1D arrays
     left_vals = left_vals[valid_char_mask]
     right_vals = right_vals[valid_char_mask]
+    weights = weights[valid_char_mask]
 
-    pairs = np.column_stack((left_vals, right_vals))
-    unique_pairs, first_idx, counts = np.unique(pairs, axis=0, return_index=True, return_counts=True)
+    if len(left_vals) == 0:
+        return None, None, 0  # or None, None, None?
 
-    highest_count = np.max(counts)
-    tie_indices = np.where(counts == highest_count)[0]
+    # pairs = np.column_stack((left_vals, right_vals))
+    encoded_pairs = left_vals * len(vocab) + right_vals
+    unique_encoded_pairs, first_idx, inverse_indices = np.unique(encoded_pairs, return_index=True, return_inverse=True)
+    encoded_pair_counts = np.bincount(inverse_indices, weights=weights)
+
+    highest_count = int(np.max(encoded_pair_counts))
+    tie_indices = np.where(encoded_pair_counts == highest_count)[0]
     tied_first_occurrences = first_idx[tie_indices]
     winner_position = np.argmin(tied_first_occurrences)
     most_freq_idx_unique = tie_indices[winner_position]
 
-    most_freq_pair = unique_pairs[most_freq_idx_unique]
-    left_idx = most_freq_pair[0]
-    right_idx = most_freq_pair[1]
+    left_idx, right_idx = divmod(unique_encoded_pairs[most_freq_idx_unique], len(vocab))
     
     return left_idx, right_idx, highest_count
 
@@ -49,21 +58,35 @@ V.insert(0, "_")                # Boundary/Stop token
 stoi = {ch: i for i, ch in enumerate(V)}
 itos = {i: ch for ch, i in stoi.items()}
 
-text = "this there that sat what when bat mere her here are hare set. seeeeex!!!"
+# text = "this there that sat what when bat mere her here are hare set. seeeeex!!!"
+text_file = f"TRAIN_FILE.txt"
+with open(text_file, "r", encoding="utf-8") as file:
+    text = file.read()
 
 cleaned_text = clean_corpus(text)
-print(f"Cleaned corpus: {cleaned_text}\n")
+# print(f"Cleaned corpus: {cleaned_text}\n")
 
-words_idx = [[stoi[c] for c in word + "_"] for word in cleaned_text.split()]
+start_time = time.perf_counter()
 
-k = 6
+words = cleaned_text.split()
+unique_words_and_freqs = Counter(words)
+unique_words = list(unique_words_and_freqs.keys())
+word_counts = np.array(list(unique_words_and_freqs.values()))
+
+words_to_ints = [[stoi[c] for c in word + "_"] for word in unique_words]
+
+k = 1000
 merges = {}
 
 for i in range(k):
-    padded_text = build_padded_array(words_idx)
+    padded_text = build_padded_array(words_to_ints)
 
-    left_value, right_value, highest_count = find_most_frequent_pair(padded_text, -1)
+    left_value, right_value, highest_count = find_most_frequent_pair(padded_text, word_counts, V, -1)
 
+    if left_value is None:
+        print("No more mergeable pairs found. Stopping early.")
+        break
+    
     pair = (int(left_value), int(right_value))
     char_pair = (itos[left_value], itos[right_value])
     merged_char = char_pair[0] + char_pair[1]
@@ -99,10 +122,14 @@ for i in range(k):
                     row[j + 1] = -1
 
     filtered_arr = [row[row != -1] for row in padded_text]  # Removes all -1 elements from each row and creates a list of lists
-    words_idx = filtered_arr # words_idx = build_padded_array(filtered_arr, -1)
+    words_to_ints = filtered_arr
+
+end_time = time.perf_counter()
+elapsed_time = end_time - start_time
 
 print(f"Final vocabulary: {V}")
 print(f"\nMerge order: {merges}")
+print(f"Training time: {elapsed_time} seconds")
 
 
 # Encoder / Decoder
@@ -111,8 +138,9 @@ cleaned_text = clean_corpus(new_text)
 
 print(f"\nCleaned text: {cleaned_text}\n")
 
-words_idx = [[stoi[c] for c in word + "_"] for word in cleaned_text.split()]
-padded_text = build_padded_array(words_idx)
+words = cleaned_text.split()
+words_to_ints = [[stoi[c] for c in word + "_"] for word in words]
+padded_text = build_padded_array(words_to_ints)
 
 # Encoding:
 for val in merges:
