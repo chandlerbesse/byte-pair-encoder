@@ -216,3 +216,20 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Coursework (homework files, not part of this project)
+CS585_P01_*
+
+# Reference and scratch scripts (proof-of-concept implementations I didn't write, benchmarking, throwaway practice)
+claude_vectorized_bpe.py
+gemini_vectorized_god_mode.py
+benchmark_bpe.py
+practice.py
+
+# Generated outputs and baselines (recreated on every run)
+VOCAB_FINAL.txt
+SEGMENTER_RESULT.txt
+MERGES.txt
+benchmark_results.csv
+plot_*.png
+baseline_*
