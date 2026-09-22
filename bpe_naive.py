@@ -1,6 +1,7 @@
 import string
 import re
 import time
+import argparse
 from collections import Counter
 
 def get_corpus(fname):
@@ -72,51 +73,90 @@ def segment_text(cleaned_text, merges):
 
     return result_str
 
+def load_merges(fname):
+    with open(fname, "r", encoding="utf-8") as file:
+        return {tuple(line.split()): rank for rank, line in enumerate(file)}
+
+def non_negative_int(value):
+    ivalue = int(value)
+    if ivalue < 0:
+        raise argparse.ArgumentTypeError(f"k must be a non-negative integer, got {ivalue}")
+    return ivalue
+
 def main():
-    VOCAB_FINAL = "VOCAB_FINAL.txt"
-    MERGES = "MERGES.txt"
-    RESULT = "SEGMENTER_RESULT.txt"
+    parser = argparse.ArgumentParser(description="Byte Pair Encoding tool.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
-    initial_vocab = list(string.ascii_letters)
-    initial_vocab.insert(0, "_")
+    train_parser = subparsers.add_parser("train", help="learn merges from a corpus")
+    train_parser.add_argument("--corpus", default="SAMPLE_CORPUS.txt",
+                              help="path to training text")
+    train_parser.add_argument("-k", type=non_negative_int, default=20,
+                              help="number of merges")
+    train_parser.add_argument("--vocab-out", default="VOCAB_FINAL.txt",
+                              help="path to write the final vocabulary")
+    train_parser.add_argument("--merges-out", default="MERGES.txt",
+                              help="path to write the learned merges")
 
-    # Training
-    file_name = "SAMPLE_CORPUS.txt"
-    corpus = get_corpus(file_name)
-    cleaned_corpus = clean_corpus(corpus)
+    segment_parser = subparsers.add_parser("segment", help="segment a sentence with a trained model")
+    segment_parser.add_argument("--input", default="SAMPLE_SEGMENT.txt",
+                                help="path to text being encoded")
+    segment_parser.add_argument("merges_path", help="path to merges")
+    segment_parser.add_argument("--seg-out", default="SEGMENTER_RESULT.txt",
+                                help="path to write the segmented text")
 
-    train_start_time = time.perf_counter()
+    args = parser.parse_args()
 
-    final_vocab, merges = train_bpe(initial_vocab, cleaned_corpus, k=20)
+    if args.command == "train":
+        initial_vocab = list(string.ascii_letters)
+        initial_vocab.insert(0, "_")
+    
+        # args variables
+        file_name = args.corpus
+        k = args.k
+        vocab_out = args.vocab_out
+        merges_out = args.merges_out
 
-    train_end_time = time.perf_counter()
-    train_elapsed_time = train_end_time - train_start_time
+        corpus = get_corpus(file_name)
+        cleaned_corpus = clean_corpus(corpus)
+    
+        train_start_time = time.perf_counter()
+    
+        final_vocab, merges = train_bpe(initial_vocab, cleaned_corpus, k)
+    
+        train_end_time = time.perf_counter()
+        train_elapsed_time = train_end_time - train_start_time
+    
+        with open(vocab_out, "w", encoding="utf-8") as file:
+            file.write("\n".join(final_vocab))
+    
+        with open(merges_out, "w", encoding="utf-8") as file:
+            for pair in merges:
+                left, right = pair
+                file.write(f"{left} {right}\n")
+    
+        print(f"Training time: {train_elapsed_time:.8f} seconds")
 
-    with open(VOCAB_FINAL, "w", encoding="utf-8") as file:
-        file.write("\n".join(final_vocab))
+    elif args.command == "segment":
+        # args variables
+        file_name = args.input
+        merges_path = args.merges_path
+        seg_out = args.seg_out 
 
-    with open(MERGES, "w", encoding="utf-8") as file:
-        for pair in merges:
-            left, right = pair
-            file.write(f"{left} {right}\n")
+        text = get_corpus(file_name)
+        cleaned_text = clean_corpus(text)
+        merges = load_merges(merges_path)
 
-    print(f"Training time: {train_elapsed_time:.8f} seconds")
+        seg_start_time = time.perf_counter()
 
-    # Segmenting Text
-    text = "where   tha't 'hate''' @_!shear** *.* chat hear!"
-    cleaned_text = clean_corpus(text)
+        result_str = segment_text(cleaned_text, merges)
 
-    seg_start_time = time.perf_counter()
+        seg_end_time = time.perf_counter()
+        seg_elapsed_time = seg_end_time - seg_start_time
 
-    result_str = segment_text(cleaned_text, merges)
+        print(f"Segmenter time: {seg_elapsed_time:.8f} seconds")
 
-    seg_end_time = time.perf_counter()
-    seg_elapsed_time = seg_end_time - seg_start_time
-
-    print(f"Segmenter time: {seg_elapsed_time:.8f} seconds")
-
-    with open(RESULT, "w", encoding="utf-8") as file:
-        file.write(result_str)
+        with open(seg_out, "w", encoding="utf-8") as file:
+            file.write(result_str)
 
 if __name__ == "__main__":
     main()
