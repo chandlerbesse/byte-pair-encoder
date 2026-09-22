@@ -59,7 +59,7 @@ stoi = {ch: i for i, ch in enumerate(V)}
 itos = {i: ch for ch, i in stoi.items()}
 
 # text = "this there that sat what when bat mere her here are hare set. seeeeex!!!"
-text_file = f"TRAIN_FILE.txt"
+text_file = f"SAMPLE_CORPUS.txt"
 with open(text_file, "r", encoding="utf-8") as file:
     text = file.read()
 
@@ -75,7 +75,7 @@ word_counts = np.array(list(unique_words_and_freqs.values()))
 
 words_to_ints = [[stoi[c] for c in word + "_"] for word in unique_words]
 
-k = 1000
+k = 20
 merges = {}
 
 for i in range(k):
@@ -105,7 +105,7 @@ for i in range(k):
     left_values = padded_text[:, :-1]
     right_values = padded_text[:, 1:]
 
-    merge_value = len(V) - 1  # re = 53
+    merge_value = len(V) - 1  
     mask = (left_values == left_value) & (right_values == right_value)
 
     if left_value != right_value:
@@ -127,14 +127,29 @@ for i in range(k):
 end_time = time.perf_counter()
 elapsed_time = end_time - start_time
 
-print(f"Final vocabulary: {V}")
-print(f"\nMerge order: {merges}")
+with open("baseline_vec_vocab_SAMPLE_CORPUS_k20.txt", "w", encoding="utf-8") as vocab_file:
+    vocab_file.write("\n".join(V))
+
+with open("baseline_vec_merges_SAMPLE_CORPUS_k20.txt", "w", encoding="utf-8") as merges_file:
+    for pair in merges:
+        # pair is a tuple of two integers ( e.g. (18, 5) )
+        left_char = itos[pair[0]]
+        right_char = itos[pair[1]]
+        merges_file.write(f"{left_char} {right_char}\n")
+
+# print(f"Final vocabulary: {V}")
+# print(f"\nMerge order: {merges}")
 print(f"Training time: {elapsed_time} seconds")
 
 
 # Encoder / Decoder
-new_text = "where that hate shear chat hear! eeeee"
-cleaned_text = clean_corpus(new_text)
+# new_text = "where that hate shear chat hear! eeeee"
+# cleaned_text = clean_corpus(new_text)
+
+text_file = f"SAMPLE_SEGMENT.txt"
+with open(text_file, "r", encoding="utf-8") as file:
+    text = file.read()
+cleaned_text = clean_corpus(text)
 
 print(f"\nCleaned text: {cleaned_text}\n")
 
@@ -181,10 +196,12 @@ for val in merges:
 # Decoding:
 flattened_arr = padded_text.flatten()
 
-decoded_text = [itos[num] for num in flattened_arr if num != -1]
-segmented_text = "|".join(decoded_text)
-segmented_text = "".join(segmented_text).replace("_", " ").strip()
-print("Segmented text:", segmented_text)
+text_tokens = [itos[num] for num in flattened_arr if num != -1]
+segmented_text = " ".join(text_tokens)
+print(segmented_text)
 
-decoded_text = "".join(decoded_text).replace("_", " ").strip()
+decoded_text = "".join(text_tokens).replace("_", " ").strip()
 print("Decoded text:", decoded_text)
+
+with open("baseline_vec_result_SAMPLE_CORPUS_k20.txt", "w", encoding="utf-8") as file:
+            file.write(segmented_text)
