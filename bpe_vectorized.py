@@ -21,23 +21,23 @@ def build_padded_array(text, padding_value=-1):
 
     return padded_arr
 
-def find_most_frequent_pair(padded_arr, counts, vocab, padding_value=-1):
-    left_vals = padded_arr[:, :-1]
-    right_vals = padded_arr[:, 1:]
-    weights = np.broadcast_to(counts[:, None], left_vals.shape)
+def find_most_frequent_pair(padded_arr, counts, vocab_size, padding_value=-1):
+    left_ids = padded_arr[:, :-1]
+    right_ids = padded_arr[:, 1:]
+    weights = np.broadcast_to(counts[:, None], left_ids.shape)
 
-    valid_char_mask = (left_vals != padding_value) & (right_vals != padding_value)
+    valid_id_mask = (left_ids != padding_value) & (right_ids != padding_value)
 
     # Apply mask, returning three 1D arrays
-    left_vals = left_vals[valid_char_mask]
-    right_vals = right_vals[valid_char_mask]
-    weights = weights[valid_char_mask]
+    left_ids = left_ids[valid_id_mask]
+    right_ids = right_ids[valid_id_mask]
+    weights = weights[valid_id_mask]
 
-    if len(left_vals) == 0:
-        return None, None, 0  # or None, None, None?
+    if len(left_ids) == 0:
+        return None, None, 0
 
-    # pairs = np.column_stack((left_vals, right_vals))
-    encoded_pairs = left_vals * len(vocab) + right_vals
+    # pairs = np.column_stack((left_ids, right_ids))  # Legacy version
+    encoded_pairs = left_ids * vocab_size + right_ids
     unique_encoded_pairs, first_idx, inverse_indices = np.unique(encoded_pairs, return_index=True, return_inverse=True)
     encoded_pair_counts = np.bincount(inverse_indices, weights=weights)
 
@@ -47,15 +47,42 @@ def find_most_frequent_pair(padded_arr, counts, vocab, padding_value=-1):
     winner_position = np.argmin(tied_first_occurrences)
     most_freq_idx_unique = tie_indices[winner_position]
 
-    left_idx, right_idx = divmod(unique_encoded_pairs[most_freq_idx_unique], len(vocab))
+    left_id, right_id = divmod(unique_encoded_pairs[most_freq_idx_unique], vocab_size)
     
-    return left_idx, right_idx, highest_count
+    return left_id, right_id, highest_count
+
+def apply_merge(padded_arr, pair, merge_id):
+    left_ids = padded_arr[:, :-1]
+    right_ids = padded_arr[:, 1:]
+
+    left_id, right_id = pair
+    mask = (left_ids == left_id) & (right_ids == right_id)
+
+    if left_id != right_id:
+        padded_arr[:, :-1][mask] = merge_id
+        padded_arr[:, 1:][mask] = -1
+        
+        filtered_arr = [row[row != -1] for row in padded_arr]
+        padded_arr = build_padded_array(filtered_arr, -1)
+        
+    else:
+        for row in padded_arr:
+            for j in range(len(row) - 1):
+                if row[j] == left_id and row[j + 1] == right_id:
+                    row[j] = merge_id
+                    row[j + 1] = -1
+
+        filtered_arr = [row[row != -1] for row in padded_arr]
+        padded_arr = build_padded_array(filtered_arr, -1)
+
+    return padded_arr
 
 
-V = list(string.ascii_letters)  # Set of all upper and lowercase letters
-V.insert(0, "_")                # Boundary/Stop token
+vocab_initial = list(string.ascii_letters)  # Set of all upper and lowercase letters
+vocab_initial.insert(0, "_")                # Boundary/Stop token
+vocab_final = vocab_initial.copy()
 
-stoi = {ch: i for i, ch in enumerate(V)}
+stoi = {ch: i for i, ch in enumerate(vocab_initial)}
 itos = {i: ch for ch, i in stoi.items()}
 
 # text = "this there that sat what when bat mere her here are hare set. seeeeex!!!"
@@ -78,66 +105,45 @@ words_to_ints = [[stoi[c] for c in word + "_"] for word in unique_words]
 k = 20
 merges = {}
 
+padded_text = build_padded_array(words_to_ints)
 for i in range(k):
-    padded_text = build_padded_array(words_to_ints)
+    vocab_size = len(vocab_final)
+    left_id, right_id, highest_count = find_most_frequent_pair(padded_text, word_counts, vocab_size, -1)
 
-    left_value, right_value, highest_count = find_most_frequent_pair(padded_text, word_counts, V, -1)
-
-    if left_value is None:
+    if left_id is None:
         print("No more mergeable pairs found. Stopping early.")
         break
     
-    pair = (int(left_value), int(right_value))
-    char_pair = (itos[left_value], itos[right_value])
-    merged_char = char_pair[0] + char_pair[1]
-    merged_value = len(V) 
+    id_pair = (int(left_id), int(right_id))
+    token_pair = (itos[left_id], itos[right_id])
+    merged_token = token_pair[0] + token_pair[1]
+    merged_token_id = vocab_size 
 
     # Update tables
-    # merges[pair] = len(merges)  # Stores pair:rank
-    merges[pair] = merged_value  # Rank is preserved by dictionary order, so mapping the value simplifies encoding below
-    V.append(merged_char)
-    stoi[merged_char] = merged_value
-    itos[merged_value] = itos[left_value] + itos[right_value]
+    merges[id_pair] = merged_token_id  # Rank is preserved by dictionary order, so mapping the value simplifies encoding below
+    vocab_final.append(merged_token)
+    stoi[merged_token] = merged_token_id
+    itos[merged_token_id] = itos[left_id] + itos[right_id]
 
-    # print(f"Pair: {pair} --> {char_pair}")
+    # print(f"Pair: {id_pair} --> {token_pair}")
     # print(f"Merges: {merges}")
 
-    left_values = padded_text[:, :-1]
-    right_values = padded_text[:, 1:]
-
-    merge_value = len(V) - 1  
-    mask = (left_values == left_value) & (right_values == right_value)
-
-    if left_value != right_value:
-        # print("  - Branch 1 --> vectorization\n")
-        padded_text[:, :-1][mask] = merge_value
-        padded_text[:, 1:][mask] = -1
-
-    else:
-        # print("  - Branch 2: loop\n")
-        for row in padded_text:
-            for j in range(len(row) - 1):
-                if row[j] == left_value and row[j + 1] == right_value:
-                    row[j] = merge_value
-                    row[j + 1] = -1
-
-    filtered_arr = [row[row != -1] for row in padded_text]  # Removes all -1 elements from each row and creates a list of lists
-    words_to_ints = filtered_arr
+    padded_text = apply_merge(padded_text, id_pair, merged_token_id)
 
 end_time = time.perf_counter()
 elapsed_time = end_time - start_time
 
-with open("baseline_vec_vocab_SAMPLE_CORPUS_k20.txt", "w", encoding="utf-8") as vocab_file:
-    vocab_file.write("\n".join(V))
+with open("vec_vocab_final.txt", "w", encoding="utf-8") as vocab_file:
+    vocab_file.write("\n".join(vocab_final))
 
-with open("baseline_vec_merges_SAMPLE_CORPUS_k20.txt", "w", encoding="utf-8") as merges_file:
+with open("vec_merges.txt", "w", encoding="utf-8") as merges_file:
     for pair in merges:
         # pair is a tuple of two integers ( e.g. (18, 5) )
         left_char = itos[pair[0]]
         right_char = itos[pair[1]]
         merges_file.write(f"{left_char} {right_char}\n")
 
-# print(f"Final vocabulary: {V}")
+# print(f"Final vocabulary: {vocab_final}")
 # print(f"\nMerge order: {merges}")
 print(f"Training time: {elapsed_time} seconds")
 
@@ -158,40 +164,9 @@ words_to_ints = [[stoi[c] for c in word + "_"] for word in words]
 padded_text = build_padded_array(words_to_ints)
 
 # Encoding:
-for val in merges:
-    # print(f"{val} | {itos[val[0]], itos[val[1]]}")
-
-    left_values = padded_text[:, :-1]
-    right_values = padded_text[:, 1:]
-
-    left_value = val[0]
-    right_value = val[1]
-    # merge_value = stoi[ itos[left_value] + itos[right_value] ]
-    merge_value = merges[val]
-    mask = (left_values == left_value) & (right_values == right_value)
-
-    if left_value != right_value:
-        # print("  - Branch 1 --> vectorization\n")
-        padded_text[:, :-1][mask] = merge_value
-        padded_text[:, 1:][mask] = -1
-        
-        filtered_arr = [row[row != -1] for row in padded_text]
-        padded_text = build_padded_array(filtered_arr, -1)
-        
-        # print(padded_text)
-        
-    else:
-        # print("  - Branch 2: loop\n")
-        for row in padded_text:
-            for j in range(len(row) - 1):
-                if row[j] == left_value and row[j + 1] == right_value:
-                    row[j] = merge_value
-                    row[j + 1] = -1
-
-        filtered_arr = [row[row != -1] for row in padded_text]
-        padded_text = build_padded_array(filtered_arr, -1)
-
-# print(padded_text)
+for pair, merged_token_id in merges.items():
+    # pair is a tuple of two integers ( e.g. (18, 5) )
+    padded_text = apply_merge(padded_text, pair, merged_token_id)
 
 # Decoding:
 flattened_arr = padded_text.flatten()
@@ -203,5 +178,5 @@ print(segmented_text)
 decoded_text = "".join(text_tokens).replace("_", " ").strip()
 print("Decoded text:", decoded_text)
 
-with open("baseline_vec_result_SAMPLE_CORPUS_k20.txt", "w", encoding="utf-8") as file:
+with open("vec_segmenter_result.txt", "w", encoding="utf-8") as file:
             file.write(segmented_text)
