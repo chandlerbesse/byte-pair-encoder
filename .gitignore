@@ -227,9 +227,13 @@ benchmark_bpe.py
 practice.py
 
 # Generated outputs and baselines (recreated on every run)
-VOCAB_FINAL.txt
-SEGMENTER_RESULT.txt
-MERGES.txt
 benchmark_results.csv
 plot_*.png
 baseline_*
+vec_*
+naive_*
+
+# Corpus files
+TRAIN_*
+TEST_FILE.txt
+moby_dick.txt

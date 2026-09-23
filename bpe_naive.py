@@ -88,20 +88,20 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     train_parser = subparsers.add_parser("train", help="learn merges from a corpus")
-    train_parser.add_argument("--corpus", default="SAMPLE_CORPUS.txt",
+    train_parser.add_argument("--corpus", default="data/SAMPLE_CORPUS.txt",
                               help="path to training text")
     train_parser.add_argument("-k", type=non_negative_int, default=20,
                               help="number of merges")
-    train_parser.add_argument("--vocab-out", default="VOCAB_FINAL.txt",
+    train_parser.add_argument("--vocab-out", default="results/naive_vocab_final.txt",
                               help="path to write the final vocabulary")
-    train_parser.add_argument("--merges-out", default="MERGES.txt",
+    train_parser.add_argument("--merges-out", default="results/naive_merges.txt",
                               help="path to write the learned merges")
 
     segment_parser = subparsers.add_parser("segment", help="segment a sentence with a trained model")
-    segment_parser.add_argument("--input", default="SAMPLE_SEGMENT.txt",
+    segment_parser.add_argument("--input", default="data/SAMPLE_SEGMENT.txt",
                                 help="path to text being encoded")
     segment_parser.add_argument("merges_path", help="path to merges")
-    segment_parser.add_argument("--seg-out", default="SEGMENTER_RESULT.txt",
+    segment_parser.add_argument("--seg-out", default="results/naive_segmenter_result.txt",
                                 help="path to write the segmented text")
 
     args = parser.parse_args()
