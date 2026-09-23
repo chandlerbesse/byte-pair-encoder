@@ -77,106 +77,104 @@ def apply_merge(padded_arr, pair, merge_id):
 
     return padded_arr
 
+def train_bpe(initial_vocab, cleaned_corpus, num_merges):
+    final_vocab = initial_vocab.copy()
+    stoi = {ch: i for i, ch in enumerate(initial_vocab)}
+    itos = {i: ch for ch, i in stoi.items()}
 
-vocab_initial = list(string.ascii_letters)  # Set of all upper and lowercase letters
-vocab_initial.insert(0, "_")                # Boundary/Stop token
-vocab_final = vocab_initial.copy()
+    words = cleaned_corpus.split()
+    unique_words_and_freqs = Counter(words)
+    unique_words = list(unique_words_and_freqs.keys())
+    word_counts = np.array(list(unique_words_and_freqs.values()))
 
-stoi = {ch: i for i, ch in enumerate(vocab_initial)}
-itos = {i: ch for ch, i in stoi.items()}
+    words_to_ids = [[stoi[c] for c in word + "_"] for word in unique_words]
 
-# text = "this there that sat what when bat mere her here are hare set. seeeeex!!!"
-text_file = f"SAMPLE_CORPUS.txt"
-with open(text_file, "r", encoding="utf-8") as file:
-    text = file.read()
+    merges = {}
 
-cleaned_text = clean_corpus(text)
-# print(f"Cleaned corpus: {cleaned_text}\n")
+    padded_text = build_padded_array(words_to_ids)
+    for i in range(num_merges):
+        vocab_size = len(final_vocab)
+        left_id, right_id, highest_count = find_most_frequent_pair(padded_text, word_counts, vocab_size, -1)
 
-start_time = time.perf_counter()
+        if left_id is None:
+            print("No more mergeable pairs found. Stopping early.")
+            break
+        
+        id_pair = (int(left_id), int(right_id))
+        token_pair = (itos[left_id], itos[right_id])
+        merged_token = token_pair[0] + token_pair[1]
+        merged_token_id = vocab_size 
 
-words = cleaned_text.split()
-unique_words_and_freqs = Counter(words)
-unique_words = list(unique_words_and_freqs.keys())
-word_counts = np.array(list(unique_words_and_freqs.values()))
+        # Update tables
+        merges[id_pair] = merged_token_id  # Rank is preserved by dictionary order, so mapping the value simplifies encoding below
+        final_vocab.append(merged_token)
+        stoi[merged_token] = merged_token_id
+        itos[merged_token_id] = itos[left_id] + itos[right_id]
 
-words_to_ints = [[stoi[c] for c in word + "_"] for word in unique_words]
+        padded_text = apply_merge(padded_text, id_pair, merged_token_id)
 
-k = 20
-merges = {}
+    return final_vocab, stoi, itos, merges
 
-padded_text = build_padded_array(words_to_ints)
-for i in range(k):
-    vocab_size = len(vocab_final)
-    left_id, right_id, highest_count = find_most_frequent_pair(padded_text, word_counts, vocab_size, -1)
+def segment_text(cleaned_text, merges, stoi, itos):
+    words = cleaned_text.split()
+    words_to_ids = [[stoi[c] for c in word + "_"] for word in words]
+    padded_text = build_padded_array(words_to_ids)
 
-    if left_id is None:
-        print("No more mergeable pairs found. Stopping early.")
-        break
-    
-    id_pair = (int(left_id), int(right_id))
-    token_pair = (itos[left_id], itos[right_id])
-    merged_token = token_pair[0] + token_pair[1]
-    merged_token_id = vocab_size 
+    # Encoding:
+    for id_pair, merged_token_id in merges.items():
+        # id_pair is a tuple of two integers ( e.g. (18, 5) )
+        padded_text = apply_merge(padded_text, id_pair, merged_token_id)
 
-    # Update tables
-    merges[id_pair] = merged_token_id  # Rank is preserved by dictionary order, so mapping the value simplifies encoding below
-    vocab_final.append(merged_token)
-    stoi[merged_token] = merged_token_id
-    itos[merged_token_id] = itos[left_id] + itos[right_id]
+    # Decoding:
+    flattened_arr = padded_text.flatten()
+    text_tokens = [itos[num] for num in flattened_arr if num != -1]
+    segmented_text = " ".join(text_tokens)
 
-    # print(f"Pair: {id_pair} --> {token_pair}")
-    # print(f"Merges: {merges}")
+    # decoded_text = "".join(text_tokens).replace("_", " ").strip()
+    # print("Decoded text:", decoded_text)
+    return segmented_text
 
-    padded_text = apply_merge(padded_text, id_pair, merged_token_id)
+def main():
+    vocab_initial = list(string.ascii_letters)  # Set of all upper and lowercase letters
+    vocab_initial.insert(0, "_")                # Boundary/Stop token
 
-end_time = time.perf_counter()
-elapsed_time = end_time - start_time
+    corpus_file = "SAMPLE_CORPUS.txt"
+    with open(corpus_file, "r", encoding="utf-8") as file:
+        corpus = file.read()
+    cleaned_corpus = clean_corpus(corpus)
 
-with open("vec_vocab_final.txt", "w", encoding="utf-8") as vocab_file:
-    vocab_file.write("\n".join(vocab_final))
+    start_time = time.perf_counter()
+    vocab_final, stoi, itos, merges = train_bpe(vocab_initial, cleaned_corpus, num_merges=20)
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
 
-with open("vec_merges.txt", "w", encoding="utf-8") as merges_file:
-    for pair in merges:
-        # pair is a tuple of two integers ( e.g. (18, 5) )
-        left_char = itos[pair[0]]
-        right_char = itos[pair[1]]
-        merges_file.write(f"{left_char} {right_char}\n")
+    with open("vec_vocab_final.txt", "w", encoding="utf-8") as vocab_file:
+        vocab_file.write("\n".join(vocab_final))
 
-# print(f"Final vocabulary: {vocab_final}")
-# print(f"\nMerge order: {merges}")
-print(f"Training time: {elapsed_time} seconds")
+    with open("vec_merges.txt", "w", encoding="utf-8") as merges_file:
+        for id_pair in merges:
+            # id_pair is a tuple of two integers ( e.g. (18, 5) )
+            left_char = itos[id_pair[0]]
+            right_char = itos[id_pair[1]]
+            merges_file.write(f"{left_char} {right_char}\n")
 
+    print(f"Training time: {elapsed_time} seconds")
 
-# Encoder / Decoder
-# new_text = "where that hate shear chat hear! eeeee"
-# cleaned_text = clean_corpus(new_text)
+    text_file = "SAMPLE_SEGMENT.txt"
+    with open(text_file, "r", encoding="utf-8") as file:
+        text = file.read()
+    cleaned_text = clean_corpus(text)
 
-text_file = f"SAMPLE_SEGMENT.txt"
-with open(text_file, "r", encoding="utf-8") as file:
-    text = file.read()
-cleaned_text = clean_corpus(text)
+    seg_start_time = time.perf_counter()
+    result_str = segment_text(cleaned_text, merges, stoi, itos)
+    seg_end_time = time.perf_counter()
+    seg_elapsed_time = seg_end_time - seg_start_time
 
-print(f"\nCleaned text: {cleaned_text}\n")
+    print(f"Segmentation time: {seg_elapsed_time:.8f} seconds\n")
+    print("Segmented text:\n", result_str)
 
-words = cleaned_text.split()
-words_to_ints = [[stoi[c] for c in word + "_"] for word in words]
-padded_text = build_padded_array(words_to_ints)
+    with open("vec_segmenter_result.txt", "w", encoding="utf-8") as file:
+        file.write(result_str)
 
-# Encoding:
-for pair, merged_token_id in merges.items():
-    # pair is a tuple of two integers ( e.g. (18, 5) )
-    padded_text = apply_merge(padded_text, pair, merged_token_id)
-
-# Decoding:
-flattened_arr = padded_text.flatten()
-
-text_tokens = [itos[num] for num in flattened_arr if num != -1]
-segmented_text = " ".join(text_tokens)
-print(segmented_text)
-
-decoded_text = "".join(text_tokens).replace("_", " ").strip()
-print("Decoded text:", decoded_text)
-
-with open("vec_segmenter_result.txt", "w", encoding="utf-8") as file:
-            file.write(segmented_text)
+if __name__ == "__main__":
+    main()
