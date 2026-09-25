@@ -1,4 +1,6 @@
 import string
+import argparse
+import time
 import bpe_naive as naive
 import bpe_vectorized as vec
 
@@ -27,27 +29,75 @@ def segment_vectorized(cleaned_text, model):
     merges_id_dict, stoi, itos = model
     return vec.segment_text(cleaned_text, merges_id_dict, stoi, itos)
 
-if __name__ == "__main__":
-    # Training
-    corpus = naive.get_corpus("data/SAMPLE_CORPUS.txt")
-    cleaned_corpus = naive.clean_corpus(corpus)
-    k = 20
+def non_negative_int(value):
+    ivalue = int(value)
+    if ivalue < 0:
+        raise argparse.ArgumentTypeError(f"k must be a non-negative integer, got {ivalue}")
+    return ivalue
 
+def run_command(args):
+    # Training
+    corpus = naive.get_corpus(args.corpus)
+    cleaned_corpus = naive.clean_corpus(corpus)
+    k = args.num_merges
+
+    naive_train_start_time = time.perf_counter()
     naive_merges, naive_model = train_naive(cleaned_corpus, k)
+    naive_train_end_time = time.perf_counter()
+    naive_train_elapsed_time = naive_train_end_time - naive_train_start_time
+    
+
+    vec_train_start_time = time.perf_counter()
     vec_merges, vec_model = train_vectorized(cleaned_corpus, k)
-    print(f"Merges match: {naive_merges == vec_merges}")
+    vec_train_end_time = time.perf_counter()
+    vec_train_elapsed_time = vec_train_end_time - vec_train_start_time
+    
+    print(f"Naive training time: {naive_train_elapsed_time:.8f} seconds")
+    print(f"Vectorized training time: {vec_train_elapsed_time:.8f} seconds")
+    print(f"Merges match: {naive_merges == vec_merges}\n")
 
     # Segmentation
-    seg_text = naive.get_corpus("data/SAMPLE_SEGMENT.txt")
+    seg_text = naive.get_corpus(args.text)
     cleaned_seg_text = naive.clean_corpus(seg_text)
 
+    naive_seg_start_time = time.perf_counter()
     naive_seg_result = segment_naive(cleaned_seg_text, naive_model)
+    naive_seg_end_time = time.perf_counter()
+    naive_seg_elapsed_time = naive_seg_end_time - naive_seg_start_time
+
+    vec_seg_start_time = time.perf_counter()
     vec_seg_result = segment_vectorized(cleaned_seg_text, vec_model)
+    vec_seg_end_time = time.perf_counter()
+    vec_seg_elapsed_time = vec_seg_end_time - vec_seg_start_time
+
+    print(f"Naive segmentation time: {naive_seg_elapsed_time:.8f} seconds")
+    print(f"Vectorized segmentation time: {vec_seg_elapsed_time:.8f} seconds")
     print(f"Segmentation match: {naive_seg_result == vec_seg_result}")
 
-    baseline_file = "results/baseline_naive_merges_SAMPLE_CORPUS_k20.txt"
-    with open(baseline_file, "r", encoding="utf-8") as file:
-        baseline = [tuple(line.split()) for line in file]
+def report_command(args):
+    print("report: not implemented yet")
 
-    print(f"Baseline merges match: {baseline == naive_merges}, {baseline == vec_merges}")
+def main():
+    parser = argparse.ArgumentParser(description="Benchmark and compare the naive and vectorized BPE implementations.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    run_parser = subparsers.add_parser("run", help="run benchmarks and check that outputs match")
+    run_parser.add_argument("-c", "--corpus", default="data/SAMPLE_CORPUS.txt",
+                            help="path to training text")
+    run_parser.add_argument("-k", "--num-merges", type=non_negative_int, default=20,
+                            help="number of merges")
+    run_parser.add_argument("-t", "--text", default="data/SAMPLE_SEGMENT.txt",
+                            help="path to text being segmented")
+
+    subparsers.add_parser("report", help="display saved results (not implemented yet)")
+
+    args = parser.parse_args()
+
+    if args.command == "run":
+        run_command(args)
+    elif args.command == "report":
+        report_command(args)
+
+if __name__ == "__main__":
+    main()
 
