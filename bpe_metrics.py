@@ -1,6 +1,7 @@
 import string
 import argparse
 import time
+import sys
 import bpe_naive as naive
 import bpe_vectorized as vec
 
@@ -34,7 +35,7 @@ def non_negative_int(value):
     if ivalue < 0:
         raise argparse.ArgumentTypeError(f"k must be a non-negative integer, got {ivalue}")
     return ivalue
-
+        
 def run_command(args):
     # Training
     corpus = naive.get_corpus(args.corpus)
@@ -45,16 +46,17 @@ def run_command(args):
     naive_merges, naive_model = train_naive(cleaned_corpus, k)
     naive_train_end_time = time.perf_counter()
     naive_train_elapsed_time = naive_train_end_time - naive_train_start_time
-    
 
     vec_train_start_time = time.perf_counter()
     vec_merges, vec_model = train_vectorized(cleaned_corpus, k)
     vec_train_end_time = time.perf_counter()
     vec_train_elapsed_time = vec_train_end_time - vec_train_start_time
+
+    if naive_merges != vec_merges:
+            sys.exit("\nERROR: naive_merges != vec_merges")
     
     print(f"Naive training time: {naive_train_elapsed_time:.8f} seconds")
     print(f"Vectorized training time: {vec_train_elapsed_time:.8f} seconds")
-    print(f"Merges match: {naive_merges == vec_merges}\n")
 
     # Segmentation
     seg_text = naive.get_corpus(args.text)
@@ -70,9 +72,13 @@ def run_command(args):
     vec_seg_end_time = time.perf_counter()
     vec_seg_elapsed_time = vec_seg_end_time - vec_seg_start_time
 
-    print(f"Naive segmentation time: {naive_seg_elapsed_time:.8f} seconds")
+    if naive_seg_result != vec_seg_result:
+        sys.exit("\ERROR: naive_seg_result != vec_seg_result")
+
+    print(f"\nNaive segmentation time: {naive_seg_elapsed_time:.8f} seconds")
     print(f"Vectorized segmentation time: {vec_seg_elapsed_time:.8f} seconds")
-    print(f"Segmentation match: {naive_seg_result == vec_seg_result}")
+
+    print("\nSUCCESS: naive_merges == vec_merges AND naive_seg_result == vec_seg_result")
 
 def report_command(args):
     print("report: not implemented yet")
