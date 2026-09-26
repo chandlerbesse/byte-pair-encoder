@@ -31,6 +31,11 @@ def segment_vectorized(cleaned_text, model):
     merges_id_dict, stoi, itos = model
     return vec.segment_text(cleaned_text, merges_id_dict, stoi, itos)
 
+IMPLEMENTATIONS = {
+    "naive": (train_naive, segment_naive),
+    "vectorized": (train_vectorized, segment_vectorized),
+}
+
 def non_negative_int(value):
     ivalue = int(value)
     if ivalue < 0:
@@ -68,34 +73,51 @@ def print_timing(label, times):
     print(f" - Slowest = {max_time:.8f} seconds")
 
 def run_command(args):
-    # Training
-    corpus = naive.get_corpus(args.corpus)
-    cleaned_corpus = naive.clean_corpus(corpus)
+    impl_names = args.impl  # List of implementation names to run (e.g., ["naive", "vectorized"])
     k = args.num_merges
     repeats = args.repeats
 
-    naive_train_times, (naive_merges, naive_model) = track_time(train_naive, cleaned_corpus, k, repeats=repeats)
-    vec_train_times, (vec_merges, vec_model) = track_time(train_vectorized, cleaned_corpus, k, repeats=repeats)
+    # Training corpus and segmentation text
+    corpus = naive.get_corpus(args.corpus)
+    cleaned_train_corpus = naive.clean_corpus(corpus)
+    text = naive.get_corpus(args.text)
+    cleaned_seg_text = naive.clean_corpus(text)
 
-    if naive_merges != vec_merges:
-        sys.exit("\nERROR: naive_merges != vec_merges")
+    reference = impl_names[0]  # used for comparison check
+    results = {}
 
-    # Segmentation
-    seg_text = naive.get_corpus(args.text)
-    cleaned_seg_text = naive.clean_corpus(seg_text)
+    for name in impl_names:
+        train_func, seg_func = IMPLEMENTATIONS[name]
+        train_times, (merges, model) = track_time(train_func, cleaned_train_corpus, k, repeats=repeats)
+        seg_times, seg_result = track_time(seg_func, cleaned_seg_text, model, repeats=repeats)
 
-    naive_seg_times, naive_seg_result = track_time(segment_naive, cleaned_seg_text, naive_model, repeats=repeats)
-    vec_seg_times, vec_seg_result = track_time(segment_vectorized, cleaned_seg_text, vec_model, repeats=repeats)
+        results[name] = {
+            "train_times": train_times,
+            "merges": merges,
+            "seg_times": seg_times,
+            "segmented": seg_result,
+        }
 
-    if naive_seg_result != vec_seg_result:
-        sys.exit("\nERROR: naive_seg_result != vec_seg_result")
+        if name == reference:
+            continue
 
-    print("SUCCESS: naive_merges == vec_merges AND naive_seg_result == vec_seg_result\n")
-    print_timing("Naive training", naive_train_times)
-    print_timing("Vectorized training", vec_train_times)
+        for key in ("merges", "segmented"):
+            if results[name][key] != results[reference][key]:
+                sys.exit(f"ERROR: {key} differ between {reference} adn {name}")
+
+    print("---SUCCESSFUL RUN---")
+    if len(impl_names) > 1:
+        print(f"Outputs match: {', '.join(impl_names)}\n")
+    else:
+        print("Only one implementation selected; outputs not cross-checked\n")
+
+    for name in impl_names:
+        print_timing(f"{name.capitalize()} training", results[name]["train_times"])
+
     print()
-    print_timing("Naive segmentation", naive_seg_times)
-    print_timing("Vectorized segmentation", vec_seg_times)    
+
+    for name in impl_names:
+        print_timing(f"{name.capitalize()} segmentation", results[name]["seg_times"])
 
 def report_command(args):
     print("report: not implemented yet")
@@ -105,6 +127,8 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="run benchmarks and check that outputs match")
+    run_parser.add_argument("--impl", nargs="+", choices=list(IMPLEMENTATIONS), default=list(IMPLEMENTATIONS),
+                            help="select which implementation(s) to run")
     run_parser.add_argument("-c", "--corpus", default="data/SAMPLE_CORPUS.txt",
                             help="path to training text")
     run_parser.add_argument("-k", "--num-merges", type=non_negative_int, default=20,
@@ -125,4 +149,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
