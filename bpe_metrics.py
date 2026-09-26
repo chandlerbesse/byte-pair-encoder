@@ -63,18 +63,45 @@ def track_time(func, *args, repeats, warmup=1):
 
     return times, result
 
-def print_timing(label, times):
-    median_time = statistics.median(times)
-    min_time = min(times)
-    max_time = max(times)
+def benchmark_config(cleaned_corpus, cleaned_input, k, impl_names, repeats):
+    reference = impl_names[0]  # used for comparison check
+    outputs = {}
+    records = []    # list of record dicts
 
-    print(f"{label}: median = {median_time:.8f} seconds")
-    print(f" - Fastest = {min_time:.8f} seconds")
-    print(f" - Slowest = {max_time:.8f} seconds")
+    for name in impl_names:
+        train_func, seg_func = IMPLEMENTATIONS[name]
+        train_times, (merges, model) = track_time(train_func, cleaned_corpus, k, repeats=repeats)
+        seg_times, seg_result = track_time(seg_func, cleaned_input, model, repeats=repeats)
+
+        # # temporary corruption used for testing. Remove when done.
+        # if k == 50 and name == "vectorized":
+        #     merges = merges[:-1]  # removes the last pair from merges
+
+        outputs[name] = {
+            "merges": merges,
+            "segmented": seg_result,
+        }
+
+        records.append({
+            "impl": name,
+            "k": k,
+            "k_learned": len(merges),
+            "train_times": train_times,
+            "seg_times": seg_times,
+        })
+
+        if name == reference:
+            continue
+
+        for key in ("merges", "segmented"):
+            if outputs[name][key] != outputs[reference][key]:
+                sys.exit(f"ERROR: {key} differ between {reference} and {name} for k={k}")
+
+    return records
 
 def run_command(args):
-    impl_names = args.impl  # List of implementation names to run (e.g., ["naive", "vectorized"])
-    k = args.num_merges
+    impl_names = list(dict.fromkeys(args.impl))  # Remove duplicates and create a list of implementation names to run (e.g., ["naive", "vectorized"])
+    k_values = sorted(set(args.k_values))  # Removes duplicate k values and sorts e.g. -k 50 20 50 --> k_values = [20, 50]
     repeats = args.repeats
 
     # Training corpus and segmentation text
@@ -83,42 +110,23 @@ def run_command(args):
     text = naive.get_corpus(args.text)
     cleaned_seg_text = naive.clean_corpus(text)
 
-    reference = impl_names[0]  # used for comparison check
-    results = {}
+    all_records = []
 
-    for name in impl_names:
-        train_func, seg_func = IMPLEMENTATIONS[name]
-        train_times, (merges, model) = track_time(train_func, cleaned_train_corpus, k, repeats=repeats)
-        seg_times, seg_result = track_time(seg_func, cleaned_seg_text, model, repeats=repeats)
+    for k in k_values:
+        records = benchmark_config(cleaned_train_corpus, cleaned_seg_text, k, impl_names, repeats)
+        # breakpoint()  # Used for testing and debugging. Remove or comment out when done.
+        for record in records:
+            train_median = statistics.median(record["train_times"])
+            seg_median = statistics.median(record["seg_times"])
+            print(f"k={record['k']:<6} {record['impl']:<11} train {train_median:8.4f}s segment {seg_median:8.6f}s")
 
-        results[name] = {
-            "train_times": train_times,
-            "merges": merges,
-            "seg_times": seg_times,
-            "segmented": seg_result,
-        }
+        all_records.extend(records)
 
-        if name == reference:
-            continue
-
-        for key in ("merges", "segmented"):
-            if results[name][key] != results[reference][key]:
-                sys.exit(f"ERROR: {key} differ between {reference} adn {name}")
-
-    print("---SUCCESSFUL RUN---")
     if len(impl_names) > 1:
-        print(f"Outputs match: {', '.join(impl_names)}\n")
+        print(f"Outputs match: {', '.join(impl_names)}")
     else:
-        print("Only one implementation selected; outputs not cross-checked\n")
-
-    for name in impl_names:
-        print_timing(f"{name.capitalize()} training", results[name]["train_times"])
-
-    print()
-
-    for name in impl_names:
-        print_timing(f"{name.capitalize()} segmentation", results[name]["seg_times"])
-
+        print("Only one implementation selected; outputs not cross-checked")
+        
 def report_command(args):
     print("report: not implemented yet")
 
@@ -131,8 +139,8 @@ def main():
                             help="select which implementation(s) to run")
     run_parser.add_argument("-c", "--corpus", default="data/SAMPLE_CORPUS.txt",
                             help="path to training text")
-    run_parser.add_argument("-k", "--num-merges", type=non_negative_int, default=20,
-                            help="number of merges")
+    run_parser.add_argument("-k", "--k-values", nargs="+", type=non_negative_int, default=[20],
+                            help="one or more merge counts to benchmark")
     run_parser.add_argument("-t", "--text", default="data/SAMPLE_SEGMENT.txt",
                             help="path to text being segmented")
     run_parser.add_argument("-r", "--repeats", type=positive_int, default=5,
