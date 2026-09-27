@@ -1,12 +1,17 @@
+import re
 import string
 import argparse
 import time
 import sys
 import statistics
+import json
 import bpe_naive as naive
 import bpe_vectorized as vec
+from datetime import datetime
+from pathlib import Path
 
 INITIAL_VOCAB = ["_"] + list(string.ascii_letters)
+WARMUP = 1  # untimed runs before each measurement; also recorded in saved settings
 
 def train_naive(cleaned_text, k):
     _, merges_dict = naive.train_bpe(INITIAL_VOCAB, cleaned_text, k)
@@ -48,7 +53,12 @@ def positive_int(value):
         raise argparse.ArgumentTypeError(f"must be a positive integer, got {ivalue}")
     return ivalue
 
-def track_time(func, *args, repeats, warmup=1):
+def valid_label(value):
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+        raise argparse.ArgumentTypeError(f"must contain only letters, digits, '-' or '_', got {value!r}")
+    return value
+
+def track_time(func, *args, repeats, warmup=WARMUP):
     for _ in range(warmup):
         func(*args)
 
@@ -99,7 +109,18 @@ def benchmark_config(cleaned_corpus, cleaned_input, k, impl_names, repeats):
 
     return records
 
+def save_results(path, meta, records):
+    data = {
+        "schema_version": 1,
+        "meta": meta,
+        "records": records,
+    }
+    with open(path, "w", encoding="utf-8") as file:
+        json.dump(data, file, indent=2)
+    print(f"Benchmark results saved to {path}")
+
 def run_command(args):
+    started = datetime.now()                        # one moment used for both the filename and the saved timestamp
     impl_names = list(dict.fromkeys(args.impl))     # Remove duplicates and create a list of implementation names to run (e.g., ["naive", "vectorized"])
     k_values = sorted(set(args.k_values))           # Removes duplicate k values and sorts e.g. -k 50 20 50 --> k_values = [20, 50]
     repeats = args.repeats
@@ -109,7 +130,7 @@ def run_command(args):
     cleaned_train_corpus = naive.clean_corpus(corpus)
     word_list = cleaned_train_corpus.split()
 
-    # Validate sizes before passing into loop
+    # Validate sizes before run(s)
     if args.sizes is None:
         sizes = [len(word_list)]          # no --sizes given: use the whole corpus
     else:
@@ -118,9 +139,33 @@ def run_command(args):
     if sizes[-1] > len(word_list):
         sys.exit(f"ERROR: size {sizes[-1]} exceeds corpus ({len(word_list)} words)")
 
+    # Prepare the output path before running (label already validated by argparse)
+    if args.save is not None:
+        timestamp = started.strftime("%Y-%m-%d_%H%M%S")
+
+        folder = Path("results") / "benchmarks"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{timestamp}_{args.save}.json"
+
     # Segmentation text
     text = naive.get_corpus(args.text)
     cleaned_seg_text = naive.clean_corpus(text)
+
+    settings = {
+        "corpus": args.corpus,
+        "text": args.text,
+        "sizes": sizes,
+        "k_values": k_values,
+        "impls": impl_names,
+        "repeats": repeats,
+        "warmup": WARMUP,
+    }
+
+    meta = {
+        "label": args.save,
+        "timestamp": started.isoformat(timespec="seconds"),
+        "settings": settings,
+    }
 
     all_records = []  # List to store all records for all (size, k, impl) combinations
 
@@ -129,10 +174,9 @@ def run_command(args):
         training_text = " ".join(words)
         n_words = len(words)
         n_unique = len(set(words))
-        
+
         for k in k_values:
             records = benchmark_config(training_text, cleaned_seg_text, k, impl_names, repeats)
-            # breakpoint()  # Used for testing and debugging. Remove or comment out when done.
             for record in records:
                 record.update(n_words=n_words, n_unique=n_unique)
                 train_median = statistics.median(record["train_times"])
@@ -149,7 +193,11 @@ def run_command(args):
         print(f"Outputs match: {', '.join(impl_names)}\n")
     else:
         print("Only one implementation selected; outputs not cross-checked\n")
-        
+
+    # Only saves results if args.save is not None
+    if args.save is not None:
+        save_results(path=path, meta=meta, records=all_records)
+
 def report_command(args):
     print("report: not implemented yet")
 
@@ -170,6 +218,8 @@ def main():
                             help="path to text being segmented")
     run_parser.add_argument("-r", "--repeats", type=positive_int, default=5,
                             help="number of times to repeat each timing measurement")
+    run_parser.add_argument("--save", type=valid_label, metavar="LABEL",
+                            help="save benchmark results to a JSON file")
 
     subparsers.add_parser("report", help="display saved results (not implemented yet)")
 
