@@ -41,7 +41,7 @@ def train_bpe(vocabulary, cleaned_text, k):
                 adjacent_pairs[pair] = adjacent_pairs.get(pair, 0) + multiplier
 
         if not adjacent_pairs:
-            print("No more pairs to merge.")
+            # print("No more pairs to merge.")
             break
         
         max_pair = max(adjacent_pairs, key=adjacent_pairs.get)
@@ -88,7 +88,7 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     train_parser = subparsers.add_parser("train", help="learn merges from a corpus")
-    train_parser.add_argument("--corpus", default="data/SAMPLE_CORPUS.txt",
+    train_parser.add_argument("-c", "--corpus", default="data/SAMPLE_CORPUS.txt",
                               help="path to training text")
     train_parser.add_argument("-k", type=non_negative_int, default=20,
                               help="number of merges")
@@ -133,7 +133,9 @@ def main():
             for pair in merges:
                 left, right = pair
                 file.write(f"{left} {right}\n")
-    
+
+        if len(merges) < k:
+            print(f"Stopped early: learned {len(merges)} of {k} merges (no more pairs).")
         print(f"Training time: {train_elapsed_time:.8f} seconds")
 
     elif args.command == "segment":

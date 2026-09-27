@@ -103,7 +103,7 @@ def train_bpe(initial_vocab, cleaned_corpus, num_merges):
         left_id, right_id, highest_count = find_most_frequent_pair(padded_text, word_counts, vocab_size, -1)
 
         if left_id is None:
-            print("No more mergeable pairs found. Stopping early.")
+            # print("No more mergeable pairs found. Stopping early.")
             break
         
         id_pair = (int(left_id), int(right_id))
@@ -209,7 +209,9 @@ def main():
                 right_char = itos[id_pair[1]]
                 merges_file.write(f"{left_char} {right_char}\n")
 
-        print(f"Training time: {elapsed_time} seconds")
+        if len(merges) < k:
+            print(f"Stopped early: learned {len(merges)} of {k} merges (no more pairs).")
+        print(f"Training time: {elapsed_time:.8f} seconds")
 
     elif args.command == "segment":
         # args variables
