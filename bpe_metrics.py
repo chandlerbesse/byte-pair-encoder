@@ -5,6 +5,7 @@ import time
 import sys
 import statistics
 import json
+import hashlib
 import bpe_naive as naive
 import bpe_vectorized as vec
 from datetime import datetime
@@ -73,6 +74,10 @@ def track_time(func, *args, repeats, warmup=WARMUP):
 
     return times, result
 
+def sha256_of_text(text):
+    # Secure Hash Algorithm (sha)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
 def benchmark_config(cleaned_corpus, cleaned_input, k, impl_names, repeats):
     reference = impl_names[0]  # used for comparison check
     outputs = {}    # local dictionary to store merges and segmented text for each implementation
@@ -98,6 +103,8 @@ def benchmark_config(cleaned_corpus, cleaned_input, k, impl_names, repeats):
             "k_learned": len(merges),
             "train_times": train_times,
             "seg_times": seg_times,
+            "merges_sha256": sha256_of_text(json.dumps(merges)),  # json.dumps(merges) converts merges into a string that can be encoded
+            "seg_sha256": sha256_of_text(seg_result),
         })
 
         if name == reference:
