@@ -57,6 +57,14 @@ def find_most_frequent_pair(padded_arr, counts, vocab_size, padding_value=-1):
     
     return left_id, right_id, highest_count
 
+def compact_array(arr, invalid_val=-1):
+    validity_mask = arr != invalid_val
+    sorted_mask = np.sort(validity_mask, axis=1)[:, ::-1]   # Left-justify each row: sort puts False before True, [::-1] flips so Trues are on the left
+    out = np.full(arr.shape, invalid_val, dtype=arr.dtype)  # Creates an array comprised of `invalid_val` with same dimensions as original arr
+    out[sorted_mask] = arr[validity_mask]  # matches True values in out[sorted_mask] with True values in arr[validity_mask] then replaces with actual values
+    max_len = sorted_mask.sum(axis=1).max()  # Sums consecutive T values per row and returns the max value
+    return out[:, :max_len]  # Reduces number of columns to the longest max_len
+
 def apply_merge(padded_arr, pair, merge_id):
     left_ids = padded_arr[:, :-1]
     right_ids = padded_arr[:, 1:]
@@ -70,6 +78,7 @@ def apply_merge(padded_arr, pair, merge_id):
         
         filtered_arr = [row[row != -1] for row in padded_arr]
         padded_arr = build_padded_array(filtered_arr, -1)
+        # padded_arr = compact_array(padded_arr, invalid_val=-1)  # Uncomment later once I have baseline metrics
         
     else:
         for row in padded_arr:
@@ -80,10 +89,11 @@ def apply_merge(padded_arr, pair, merge_id):
 
         filtered_arr = [row[row != -1] for row in padded_arr]
         padded_arr = build_padded_array(filtered_arr, -1)
+        # padded_arr = compact_array(padded_arr, -1)  # Uncomment later once I have baseline metrics
 
     return padded_arr
 
-def train_bpe(initial_vocab, cleaned_corpus, num_merges):
+def train_bpe(initial_vocab, cleaned_corpus, num_merges, on_merge=None):
     final_vocab = initial_vocab.copy()
     stoi = {ch: i for i, ch in enumerate(initial_vocab)}
     itos = {i: ch for ch, i in stoi.items()}
@@ -118,6 +128,9 @@ def train_bpe(initial_vocab, cleaned_corpus, num_merges):
         itos[merged_token_id] = itos[left_id] + itos[right_id]
 
         padded_text = apply_merge(padded_text, id_pair, merged_token_id)
+
+        if on_merge is not None:
+            on_merge()
 
     return final_vocab, stoi, itos, merges
 

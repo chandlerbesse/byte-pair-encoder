@@ -23,7 +23,7 @@ def merge_tokens(token_list, left, right):
         else:
             i += 1
 
-def train_bpe(vocabulary, cleaned_text, k):
+def train_bpe(vocabulary, cleaned_text, k, on_merge=None):
     unique_word_counts = Counter(cleaned_text.split())
     tokenized_words = {word: [c for c in word + "_"] for word in unique_word_counts}  # Ex: 'this': ['t', 'h', 'i', 's', '_']
 
@@ -54,6 +54,9 @@ def train_bpe(vocabulary, cleaned_text, k):
         # Merging
         for word_id, word_tokens in tokenized_words.items():
             merge_tokens(word_tokens, left_tok, right_tok)
+
+        if on_merge is not None:
+            on_merge()
 
     return final_vocab, merges
 
