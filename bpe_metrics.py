@@ -6,6 +6,8 @@ import sys
 import statistics
 import json
 import hashlib
+import platform
+import numpy as np
 import bpe_naive as naive
 import bpe_vectorized as vec
 from datetime import datetime
@@ -175,8 +177,12 @@ def run_command(args):
     meta = {
         "label": args.save,
         "timestamp": started.isoformat(timespec="seconds"),
-        "settings": settings,
         "complete": False,
+        "settings": settings,
+        "environment": {
+            "python_version": platform.python_version(),
+            "numpy_version": np.__version__,
+        },
     }
 
     all_records = []  # List to store all records for all (size, k, impl) combinations
@@ -202,8 +208,7 @@ def run_command(args):
             # Saves after each (size, k) configuration so finished results survive a crash
             if args.save is not None:
                 save_results(path=path, meta=meta, records=all_records)
-                # print(f"Benchmark results for (size={size}, k={k}) saved to {path}")
-
+                
         print()  # Blank line between different sizes for readability
 
     if len(impl_names) > 1:
