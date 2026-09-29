@@ -12,17 +12,18 @@ import bpe_naive as naive
 import bpe_vectorized as vec
 from datetime import datetime
 from pathlib import Path
+from tqdm import tqdm
 
 INITIAL_VOCAB = ["_"] + list(string.ascii_letters)
 WARMUP = 1  # untimed runs before each measurement; also recorded in saved settings
 
-def train_naive(cleaned_text, k):
-    _, merges_dict = naive.train_bpe(INITIAL_VOCAB, cleaned_text, k)
+def train_naive(cleaned_text, k, on_merge=None):
+    _, merges_dict = naive.train_bpe(INITIAL_VOCAB, cleaned_text, k, on_merge=on_merge)
     merges_list = list(merges_dict)
     return merges_list, merges_dict
 
-def train_vectorized(cleaned_text, k):
-    _, stoi, itos, merges_id_dict = vec.train_bpe(INITIAL_VOCAB, cleaned_text, k)
+def train_vectorized(cleaned_text, k, on_merge=None):
+    _, stoi, itos, merges_id_dict = vec.train_bpe(INITIAL_VOCAB, cleaned_text, k, on_merge=on_merge)
     merges_list = []
     for id_pair in merges_id_dict:
         left_tok = itos[id_pair[0]]
@@ -87,7 +88,10 @@ def benchmark_config(cleaned_corpus, cleaned_input, k, impl_names, repeats):
 
     for name in impl_names:
         train_func, seg_func = IMPLEMENTATIONS[name]
-        train_times, (merges, model) = track_time(train_func, cleaned_corpus, k, repeats=repeats)
+
+        with tqdm(total=k * (WARMUP + repeats), desc=f"{name} train", unit="merge", leave=False, position=1) as merge_bar:
+            train_times, (merges, model) = track_time(train_func, cleaned_corpus, k, merge_bar.update, repeats=repeats)
+
         seg_times, seg_result = track_time(seg_func, cleaned_input, model, repeats=repeats)
 
         # # temporary corruption used for testing. Remove when done.
@@ -187,29 +191,33 @@ def run_command(args):
 
     all_records = []  # List to store all records for all (size, k, impl) combinations
 
-    for size in sizes:
-        words = word_list[:size]
-        training_text = " ".join(words)
-        n_words = len(words)
-        n_unique = len(set(words))
+    with tqdm(total=len(sizes) * len(k_values), desc="Configs", unit="config") as bar:
+        for size in sizes:
+            words = word_list[:size]
+            training_text = " ".join(words)
+            n_words = len(words)
+            n_unique = len(set(words))
 
-        for k in k_values:
-            records = benchmark_config(training_text, cleaned_seg_text, k, impl_names, repeats)
-            for record in records:
-                record.update(n_words=n_words, n_unique=n_unique)
-                train_median = statistics.median(record["train_times"])
-                seg_median = statistics.median(record["seg_times"])
+            for k in k_values:
+                bar.set_postfix(size=size, k=k)  # show what's running now
+                records = benchmark_config(training_text, cleaned_seg_text, k, impl_names, repeats)
+                for record in records:
+                    record.update(n_words=n_words, n_unique=n_unique)
+                    train_median = statistics.median(record["train_times"])
+                    seg_median = statistics.median(record["seg_times"])
 
-                note = f"  (learned {record['k_learned']} of {k} merges)" if record["k_learned"] < record["k"] else ""
-                print(f"size={record['n_words']:<7} k={record['k']:<6} {record['impl']:<11} train {train_median:8.4f}s segment {seg_median:8.6f}s {note}")
+                    note = f"  (learned {record['k_learned']} of {k} merges)" if record["k_learned"] < record["k"] else ""
+                    tqdm.write(f"size={record['n_words']:<7} k={record['k']:<6} {record['impl']:<11} train {train_median:8.4f}s segment {seg_median:8.6f}s {note}")
 
-            all_records.extend(records)
+                all_records.extend(records)
 
-            # Saves after each (size, k) configuration so finished results survive a crash
-            if args.save is not None:
-                save_results(path=path, meta=meta, records=all_records)
-                
-        print()  # Blank line between different sizes for readability
+                # Saves after each (size, k) configuration so finished results survive a crash
+                if args.save is not None:
+                    save_results(path=path, meta=meta, records=all_records)
+
+                bar.update(1)
+
+            tqdm.write("")  # Blank line between different sizes for readability
 
     if len(impl_names) > 1:
         print(f"Outputs match: {', '.join(impl_names)}\n")
