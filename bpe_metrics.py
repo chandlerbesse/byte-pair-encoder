@@ -14,8 +14,28 @@ from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
 
-INITIAL_VOCAB = ["_"] + list(string.ascii_letters)
+# --- Benchmark settings (these affect the measurements) ---
+INITIAL_VOCAB = ["_"] + list(string.ascii_letters)  # must match the vocab bpe_naive/bpe_vectorized build in main()
 WARMUP = 1  # untimed runs before each measurement; also recorded in saved settings
+
+# --- Display (these only affect how output looks) ---
+# Shared by both progress bars so their columns line up
+#   {desc:<28}                --> left-aligned description that is always 28 chars
+#   {percentage:3.0f}         --> percent done, 3 chars, no decimals
+#   {bar:25}                  --> bar itself, always 25 chars wide
+#   {n_fmt:>6}/{total_fmt:<6} --> running count, e.g. 412/600
+#   [{elapsed}<{remaining}]   --> time so far < estimated time left
+BAR_FORMAT = "{desc:<28} {percentage:3.0f}%|{bar:25}| {n_fmt:>6}/{total_fmt:<6} [{elapsed}<{remaining}]"
+
+# Results table column widths, shared by HEADER and each result now
+SIZE_WIDTH = 7
+K_WIDTH = 6
+IMPL_WIDTH = 11
+TRAIN_WIDTH = 10
+SEG_WIDTH = 12
+
+HEADER = (f"{'size':>{SIZE_WIDTH}} {'k':>{K_WIDTH}} {'impl':<{IMPL_WIDTH}} "
+          f"{'train (s)':>{TRAIN_WIDTH}} {'segment (s)':>{SEG_WIDTH}}")
 
 def train_naive(cleaned_text, k, on_merge=None):
     _, merges_dict = naive.train_bpe(INITIAL_VOCAB, cleaned_text, k, on_merge=on_merge)
@@ -89,7 +109,7 @@ def benchmark_config(cleaned_corpus, cleaned_input, k, impl_names, repeats):
     for name in impl_names:
         train_func, seg_func = IMPLEMENTATIONS[name]
 
-        with tqdm(total=k * (WARMUP + repeats), desc=f"{name} train", unit="merge", leave=False, position=1) as merge_bar:
+        with tqdm(total=k * (WARMUP + repeats), desc=f"{name} train", unit="merge", bar_format=BAR_FORMAT, leave=False, position=1) as merge_bar:
             train_times, (merges, model) = track_time(train_func, cleaned_corpus, k, merge_bar.update, repeats=repeats)
 
         seg_times, seg_result = track_time(seg_func, cleaned_input, model, repeats=repeats)
@@ -190,8 +210,10 @@ def run_command(args):
     }
 
     all_records = []  # List to store all records for all (size, k, impl) combinations
+    print(HEADER)
+    print("-" * len(HEADER))
 
-    with tqdm(total=len(sizes) * len(k_values), desc="Configs", unit="config") as bar:
+    with tqdm(total=len(sizes) * len(k_values), desc="Configs", unit="config", bar_format=BAR_FORMAT) as bar:
         for size in sizes:
             words = word_list[:size]
             training_text = " ".join(words)
@@ -199,15 +221,16 @@ def run_command(args):
             n_unique = len(set(words))
 
             for k in k_values:
-                bar.set_postfix(size=size, k=k)  # show what's running now
+                bar.set_description(f"Configs  size={size} k={k}")  # Displays the current running configuration
                 records = benchmark_config(training_text, cleaned_seg_text, k, impl_names, repeats)
                 for record in records:
                     record.update(n_words=n_words, n_unique=n_unique)
                     train_median = statistics.median(record["train_times"])
                     seg_median = statistics.median(record["seg_times"])
 
-                    note = f"  (learned {record['k_learned']} of {k} merges)" if record["k_learned"] < record["k"] else ""
-                    tqdm.write(f"size={record['n_words']:<7} k={record['k']:<6} {record['impl']:<11} train {train_median:8.4f}s segment {seg_median:8.6f}s {note}")
+                    note = f" (learned {record['k_learned']} of {k} merges)" if record["k_learned"] < record["k"] else ""
+                    # tqdm.write(f"size={record['n_words']:<7} k={record['k']:<6} {record['impl']:<11} train {train_median:8.4f}s segment {seg_median:8.6f}s {note}")
+                    tqdm.write(f"{record['n_words']:>{SIZE_WIDTH}} {record['k']:>{K_WIDTH}} {record['impl']:<{IMPL_WIDTH}} {train_median:>{TRAIN_WIDTH}.4f} {seg_median:>{SEG_WIDTH}.6f}{note}")
 
                 all_records.extend(records)
 
