@@ -122,9 +122,12 @@ def save_results(path, meta, records):
         "meta": meta,
         "records": records,
     }
-    with open(path, "w", encoding="utf-8") as file:
+
+    # tmp_path protects against crashes while writing
+    tmp_path = path.with_suffix(".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as file:
         json.dump(data, file, indent=2)
-    print(f"Benchmark results saved to {path}")
+    tmp_path.replace(path)
 
 def run_command(args):
     started = datetime.now()                        # one moment used for both the filename and the saved timestamp
@@ -153,6 +156,7 @@ def run_command(args):
         folder = Path("results") / "benchmarks"
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{timestamp}_{args.save}.json"
+        print(f"Saving results to {path}\n")
 
     # Segmentation text
     text = naive.get_corpus(args.text)
@@ -172,6 +176,7 @@ def run_command(args):
         "label": args.save,
         "timestamp": started.isoformat(timespec="seconds"),
         "settings": settings,
+        "complete": False,
     }
 
     all_records = []  # List to store all records for all (size, k, impl) combinations
@@ -194,6 +199,11 @@ def run_command(args):
 
             all_records.extend(records)
 
+            # Saves after each (size, k) configuration so finished results survive a crash
+            if args.save is not None:
+                save_results(path=path, meta=meta, records=all_records)
+                # print(f"Benchmark results for (size={size}, k={k}) saved to {path}")
+
         print()  # Blank line between different sizes for readability
 
     if len(impl_names) > 1:
@@ -201,9 +211,13 @@ def run_command(args):
     else:
         print("Only one implementation selected; outputs not cross-checked\n")
 
+    # Finished successfully, change "complete" flag to True
+    meta["complete"] = True
+
     # Only saves results if args.save is not None
     if args.save is not None:
         save_results(path=path, meta=meta, records=all_records)
+        print(f"Benchmark results saved to {path}")
 
 def report_command(args):
     print("report: not implemented yet")
