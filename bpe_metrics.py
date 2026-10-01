@@ -17,6 +17,7 @@ from tqdm import tqdm
 # --- Benchmark settings (these affect the measurements) ---
 INITIAL_VOCAB = ["_"] + list(string.ascii_letters)  # must match the vocab bpe_naive/bpe_vectorized build in main()
 WARMUP = 1  # untimed runs before each measurement; also recorded in saved settings
+SCHEMA_VERSION = 1  # bump when saved fields are renamed, removed, or change meaning
 
 # --- Display (these only affect how output looks) ---
 # Shared by both progress bars so their columns line up
@@ -144,7 +145,7 @@ def benchmark_config(cleaned_corpus, cleaned_input, k, impl_names, repeats):
 
 def save_results(path, meta, records):
     data = {
-        "schema_version": 1,
+        "schema_version": SCHEMA_VERSION,
         "meta": meta,
         "records": records,
     }
@@ -255,8 +256,47 @@ def run_command(args):
         save_results(path=path, meta=meta, records=all_records)
         print(f"Benchmark results saved to {path}")
 
+def load_results(path):
+    try:
+        with open(path, encoding="utf-8") as file:
+            data = json.load(file)
+    except FileNotFoundError:
+        sys.exit(f"ERROR: results file not found: {path}")
+
+    version = data.get("schema_version")
+    if version != SCHEMA_VERSION:
+        sys.exit(f"ERROR: {path} has schema_version {version}, expected {SCHEMA_VERSION}")
+
+    return data
+
+def print_summary(meta):
+    settings = meta["settings"]
+    env = meta.get("environment", {})  # Use empty dict if environment info is missing
+    status = "complete" if meta["complete"] else "PARTIAL (stopped early)"
+    sizes =", ".join(str(s) for s in settings["sizes"])
+    k_values = ", ".join(str(k) for k in settings["k_values"])
+    impls = ", ".join(settings["impls"])
+
+    print(f"Run:     {meta['label']}   {meta['timestamp']}   {status}")
+    print(f"Corpus:  {settings['corpus']}   Text: {settings['text']}")
+    print(f"Sizes:   {sizes}   k: {k_values}")
+    print(f"Impls:   {impls}   repeats={settings['repeats']}  warmup={settings['warmup']}")
+    print(f"Python:  {env.get('python_version', 'unknown')}   NumPy: {env.get('numpy_version', 'unknown')}")
+
 def report_command(args):
-    print("report: not implemented yet")
+    if args.path is None:
+        # No path given: use the most recent saved run (filenames start with a timestamp, so sorting sorts by time)
+        folder = Path("results") / "benchmarks"
+        files = sorted(folder.glob("*.json"))
+        if not files:
+            sys.exit(f"ERROR: no saved results in {folder}")
+        report_path = files[-1]
+    else:
+        report_path = args.path
+
+    data = load_results(report_path)
+    meta = data["meta"]
+    print_summary(meta)
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark and compare the naive and vectorized BPE implementations.")
@@ -278,7 +318,9 @@ def main():
     run_parser.add_argument("--save", type=valid_label, metavar="LABEL",
                             help="save benchmark results to a JSON file")
 
-    subparsers.add_parser("report", help="display saved results (not implemented yet)")
+    report_parser = subparsers.add_parser("report", help="display saved benchmark results")
+    report_parser.add_argument("path", nargs="?", default=None,
+                               help="saved results file (default: most recent in results/benchmarks)")
 
     args = parser.parse_args()
 
