@@ -283,6 +283,16 @@ def print_summary(meta):
     print(f"Impls:   {impls}   repeats={settings['repeats']}  warmup={settings['warmup']}")
     print(f"Python:  {env.get('python_version', 'unknown')}   NumPy: {env.get('numpy_version', 'unknown')}")
 
+def find_missing(meta, records):
+    settings = meta["settings"]
+
+    # (size, k) is enough: run saves a configuration only after every implementation finishes
+    planned = {(size, k) for size in settings["sizes"] for k in settings["k_values"]}
+    finished = {(record["n_words"], record["k"]) for record in records}
+    missing = planned - finished  # everything in planned that is NOT in finished
+
+    return sorted(missing)  # sets have no order; returns a list of tuples sorted by size, then k
+
 def report_command(args):
     if args.path is None:
         # No path given: use the most recent saved run (filenames start with a timestamp, so sorting sorts by time)
@@ -296,7 +306,24 @@ def report_command(args):
 
     data = load_results(report_path)
     meta = data["meta"]
-    print_summary(meta)
+    print_summary(meta)  # shows "PARTIAL (stopped early)" itself when complete is false
+
+    # Always check, so a file marked complete but missing configurations is caught too
+    missing = find_missing(meta, data["records"])
+    if missing:
+        total_num_configs = len(meta["settings"]["sizes"]) * len(meta["settings"]["k_values"])
+        print(f"\nMissing {len(missing)} of {total_num_configs} configurations:")
+
+        # Group the missing k values by size, e.g. {200000: [5, 500, 1000]}
+        missing_by_size = {}
+        for size, k in missing:
+            missing_by_size.setdefault(size, []).append(k)
+
+        for size, k_list in missing_by_size.items():
+            k_text = ", ".join(str(k) for k in k_list)
+            print(f"  size={size}: k={k_text}")
+        if meta["complete"]:
+            print("WARNING: file is marked complete but configurations are missing; results may be unreliable")
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark and compare the naive and vectorized BPE implementations.")
