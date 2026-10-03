@@ -22,6 +22,20 @@ INITIAL_VOCAB = ["_"] + list(string.ascii_letters)  # must match the vocab bpe_n
 WARMUP = 1  # untimed runs before each measurement; also recorded in saved settings
 SCHEMA_VERSION = 1  # bump when saved fields are renamed, removed, or change meaning
 
+# --- Algorithm rules (descriptions of bpe_naive.py/bpe_vectorized behavior) ---
+# UPDATE THESE WHEN RULES CHANGE!
+PREPROCESSING = [
+    "letters a-zA-Z only",
+    "apostrophes between letters removed (don't --> dont)",
+    "every other run of non-letters becomes one space",
+    "case preserved",
+]
+TIEBREAK = [
+    "highest frequency-weighted pair count wins",
+    "ties go to the pair that appears first in the text",
+    " - (words in first-appearance order, then left-to-right within each word)",
+]
+
 # --- Display (these only affect how output looks) ---
 # Shared by both progress bars so their columns line up
 #   {desc:<28}                --> left-aligned description that is always 28 chars
@@ -172,7 +186,7 @@ def run_command(args):
 
     # Validate sizes before run(s)
     if args.sizes is None:
-        sizes = [len(word_list)]          # no --sizes given: use the whole corpus
+        sizes = [len(word_list)]        # no --sizes given: use the whole corpus
     else:
         sizes = sorted(set(args.sizes)) # remove duplicates and sort
 
@@ -210,6 +224,14 @@ def run_command(args):
         "environment": {
             "python_version": platform.python_version(),
             "numpy_version": np.__version__,
+        },
+        "algorithm": {
+            "preprocessing": PREPROCESSING,
+            "tiebreak": TIEBREAK,
+        },
+        "inputs": {  # hashes of the text exactly as the implementations receive it (after PREPROCESSING)
+            "train_corpus_sha256": sha256_of_text(cleaned_train_corpus),
+            "segment_text_sha256": sha256_of_text(cleaned_seg_text),
         },
     }
 
@@ -272,19 +294,36 @@ def load_results(path):
 
     return data
 
-def print_summary(meta):
+def print_summary(meta, console):
     settings = meta["settings"]
-    env = meta.get("environment", {})  # Use empty dict if environment info is missing
+    algorithm = meta.get("algorithm", {})   # Use empty dict if algorithm info is missing
+    env = meta.get("environment", {})       # Use empty dict if environment info is missing
     status = "complete" if meta["complete"] else "PARTIAL (stopped early)"
-    sizes =", ".join(str(s) for s in settings["sizes"])
+    sizes = ", ".join(str(s) for s in settings["sizes"])
     k_values = ", ".join(str(k) for k in settings["k_values"])
     impls = ", ".join(settings["impls"])
+    cleaning = "\n".join(algorithm.get("preprocessing", ["unknown"]))
+    tiebreak = "\n".join(algorithm.get("tiebreak", ["unknown"]))
 
-    print(f"Run:     {meta['label']}   {meta['timestamp']}   {status}")
-    print(f"Corpus:  {settings['corpus']}   Text: {settings['text']}")
-    print(f"Sizes:   {sizes}   k: {k_values}")
-    print(f"Impls:   {impls}   repeats={settings['repeats']}  warmup={settings['warmup']}")
-    print(f"Python:  {env.get('python_version', 'unknown')}   NumPy: {env.get('numpy_version', 'unknown')}")
+    # --- Grid settings ---
+    # Defining the grid table
+    grid = Table.grid(padding=(0, 2))   # 0 lines above/below, 2 spaces between columns
+
+    # Defining columns in grid
+    grid.add_column(style="bold")       # labels
+    grid.add_column()                   # values
+
+    # Defining rows in grid
+    grid.add_row("Run", f"{meta['label']}   {meta['timestamp']}   {status}")
+    grid.add_row("Corpus", f"{settings['corpus']}   Text: {settings['text']}")
+    grid.add_row("Sizes", f"{sizes}   k: {k_values}")
+    grid.add_row("Impls", f"{impls}   repeats={settings['repeats']}  warmup={settings['warmup']}")
+    grid.add_row("Env", f"Python: {env.get('python_version', 'unknown')}, NumPy: {env.get('numpy_version', 'unknown')}")
+    grid.add_row("Cleaning", cleaning)
+    grid.add_row("Tie-break", tiebreak)
+
+    # Display grid table
+    console.print(grid)
 
 def find_missing(meta, records):
     settings = meta["settings"]
@@ -393,7 +432,8 @@ def report_command(args):
 
     data = load_results(report_path)
     meta = data["meta"]
-    print_summary(meta)  # shows "PARTIAL (stopped early)" itself when complete is false
+    console = Console()
+    print_summary(meta, console)  # shows "PARTIAL (stopped early)" itself when complete is false
 
     # Always check, so a file marked complete but missing configurations is caught too
     missing = find_missing(meta, data["records"])
@@ -412,7 +452,6 @@ def report_command(args):
         if meta["complete"]:
             print("WARNING: file is marked complete but configurations are missing; results may be unreliable")
 
-    console = Console()
     print()
     print_results_table(meta, data["records"], console)
 
