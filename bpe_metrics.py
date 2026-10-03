@@ -13,6 +13,9 @@ import bpe_vectorized as vec
 from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
+from rich.console import Console
+from rich.table import Table
+from rich import box
 
 # --- Benchmark settings (these affect the measurements) ---
 INITIAL_VOCAB = ["_"] + list(string.ascii_letters)  # must match the vocab bpe_naive/bpe_vectorized build in main()
@@ -293,6 +296,90 @@ def find_missing(meta, records):
 
     return sorted(missing)  # sets have no order; returns a list of tuples sorted by size, then k
 
+def format_seconds(t):
+    if t >= 1:
+        return f"{t:.4f}  s"
+    elif t >= 0.001:
+        return f"{t * 1000:.4f} ms"
+    else:
+        return f"{t * 1_000_000:.4f} us"
+
+def print_results_table(meta, records, console):
+    impl_names = meta["settings"]["impls"]
+    reference = impl_names[0]  # same rule as run's cross-check: the first implementation is the reference
+    show_speedup = len(impl_names) > 1
+
+    any_early_stops = any(record["k_learned"] < record["k"] for record in records)
+
+    # Interleave implementations: sort by size, then k, then each impl's position in settings (reference first)
+    impl_order = {name: i for i, name in enumerate(impl_names)}
+    records = sorted(records, key=lambda record: (record["n_words"], record["k"], impl_order[record["impl"]]))
+
+    table = Table(
+        box=box.SIMPLE,
+        header_style="bold italic",
+        caption="* stopped early: no more pairs to merge" if any_early_stops else None,
+        caption_justify="left",
+        row_styles=["", "dim"],
+    )
+    table.add_column("size", justify="right")
+    table.add_column("unique", justify="right")
+    table.add_column("k", justify="right")
+    table.add_column("impl")
+    table.add_column("learned", justify="right")
+    table.add_column("train median", justify="right", style="blue")
+    table.add_column("train min", justify="right")
+    table.add_column("train max", justify="right")
+    table.add_column("spread", justify="right")  # (max - min) / median: how noisy the repeats were
+    table.add_column("segment median", justify="right")
+    if show_speedup:
+        table.add_column(f"vs {reference}", justify="right")  # reference time / this time; above 1x = faster
+
+    reference_medians = {}  # (size, k) -> the reference implementation's train median
+    for i, record in enumerate(records):
+        config = (record["n_words"], record["k"])
+        train_times = record["train_times"]
+        train_median = statistics.median(train_times)
+        spread = (max(train_times) - min(train_times)) / train_median  # the lower the percentage, the more consistent training was
+
+        if record["k_learned"] < record["k"]:
+            k_learned = f"[bold italic]*{record['k_learned']}[/bold italic]"
+        else:
+            k_learned = str(record["k_learned"])
+
+        row = [
+            str(record["n_words"]),
+            str(record["n_unique"]),
+            str(record["k"]),
+            record["impl"],
+            k_learned,
+            format_seconds(train_median),
+            format_seconds(min(train_times)),
+            format_seconds(max(train_times)),
+            f"{spread:.0%}",
+            format_seconds(statistics.median(record["seg_times"])),
+        ]
+
+        if show_speedup:
+            if record["impl"] == reference:
+                reference_medians[config] = train_median
+                row.append("")  # the reference isn't compared with itself
+            else:
+                ratio = reference_medians[config] / train_median
+                if ratio < 1:
+                    ratio = 1 / ratio
+                    row.append(f"[bold red]{ratio:.2f}x slower[/bold red]")
+                elif ratio > 1:
+                    row.append(f"[bold green]{ratio:.2f}x faster[/bold green]")
+                else:
+                    row.append(f"{ratio:.2f}x (same)")
+
+        # A blank line after the last row of each (size, k) group
+        next_config = (records[i + 1]["n_words"], records[i + 1]["k"]) if i + 1 < len(records) else None
+        table.add_row(*row, end_section=(next_config != config))
+
+    console.print(table)
+
 def report_command(args):
     if args.path is None:
         # No path given: use the most recent saved run (filenames start with a timestamp, so sorting sorts by time)
@@ -317,13 +404,17 @@ def report_command(args):
         # Group the missing k values by size, e.g. {200000: [5, 500, 1000]}
         missing_by_size = {}
         for size, k in missing:
-            missing_by_size.setdefault(size, []).append(k)
+            missing_by_size.setdefault(size, []).append(k)  # Review this block later with fresh eyes
 
         for size, k_list in missing_by_size.items():
             k_text = ", ".join(str(k) for k in k_list)
             print(f"  size={size}: k={k_text}")
         if meta["complete"]:
             print("WARNING: file is marked complete but configurations are missing; results may be unreliable")
+
+    console = Console()
+    print()
+    print_results_table(meta, data["records"], console)
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark and compare the naive and vectorized BPE implementations.")
