@@ -78,9 +78,18 @@ def segment_vectorized(cleaned_text, model):
     merges_id_dict, stoi, itos = model
     return vec.segment_text(cleaned_text, merges_id_dict, stoi, itos)
 
+def get_first_k_naive(model, k):
+    # for naive, model = merges_dict which contains {(left_tok, right_tok): rank}
+    return {pair: rank for pair, rank in model.items() if rank < k}
+
+def get_first_k_vectorized(model, k):
+    merges_id_dict, stoi, itos = model  # merges_id_dict contains {(left_id, right_id): merged_token_id}
+    first_k = dict( list(merges_id_dict.items())[:k] )
+    return (first_k, stoi, itos)
+
 IMPLEMENTATIONS = {
-    "naive": (train_naive, segment_naive),
-    "vectorized": (train_vectorized, segment_vectorized),
+    "naive": (train_naive, segment_naive, get_first_k_naive),
+    "vectorized": (train_vectorized, segment_vectorized, get_first_k_vectorized),
 }
 
 def non_negative_int(value):
@@ -99,6 +108,37 @@ def valid_label(value):
     if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
         raise argparse.ArgumentTypeError(f"must contain only letters, digits, '-' or '_', got {value!r}")
     return value
+
+def time_training(train_func, text, k_values, repeats, merge_bar=None):
+    max_k = max(k_values)                   # largest requested k in k_values
+    times_by_k = {k: [] for k in k_values}  # each k starts with an empty list for training times
+
+    for run in range(WARMUP + repeats):
+        timestamps = []
+
+        def record_merge_time():
+            timestamps.append(time.perf_counter())
+
+            if merge_bar is not None:
+                merge_bar.update(1)
+
+        start = time.perf_counter()
+        merges, model = train_func(text, max_k, record_merge_time)
+        end = time.perf_counter()
+
+        if run < WARMUP:
+            continue    # discard timestamps for warmups
+
+        for k in k_values:
+            # All k merges found
+            if len(timestamps) >= k:
+                final_k_time = timestamps[k-1] - start
+                times_by_k[k].append(final_k_time)
+            # Stopped early
+            else:
+                times_by_k[k].append(end - start)
+
+    return times_by_k, merges, model
 
 def track_time(func, *args, repeats, warmup=WARMUP):
     for _ in range(warmup):
@@ -119,45 +159,55 @@ def sha256_of_text(text):
     # Secure Hash Algorithm (sha)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-def benchmark_config(cleaned_corpus, cleaned_input, k, impl_names, repeats):
+def benchmark_config(cleaned_corpus, cleaned_input, k_values, impl_names, repeats):
+    # Benchmarks every k for one corpus size: each implementation trains once to the largest k,
+    # and each smaller k's training time is read from that run (see time_training)
     reference = impl_names[0]  # used for comparison check
-    outputs = {}    # local dictionary to store merges and segmented text for each implementation
-    records = []    # list of record dictionaries to store timing and other info for each implementation
+    max_k = max(k_values)
+    outputs = {k: {} for k in k_values}         # k -> {impl name: {"merges": ..., "segmented": ...}}, for the cross-check
+    records_by_k = {k: [] for k in k_values}    # k -> that k's records, one per implementation
 
     for name in impl_names:
-        train_func, seg_func = IMPLEMENTATIONS[name]
+        train_func, seg_func, first_k_func = IMPLEMENTATIONS[name]
 
-        with tqdm(total=k * (WARMUP + repeats), desc=f"{name} train", unit="merge", bar_format=BAR_FORMAT, leave=False, position=1) as merge_bar:
-            train_times, (merges, model) = track_time(train_func, cleaned_corpus, k, merge_bar.update, repeats=repeats)
+        with tqdm(total=max_k * (WARMUP + repeats), desc=f"{name} train", unit="merge", bar_format=BAR_FORMAT, leave=False, position=1) as merge_bar:
+            times_by_k, merges, model = time_training(train_func, cleaned_corpus, k_values, repeats, merge_bar)
 
-        seg_times, seg_result = track_time(seg_func, cleaned_input, model, repeats=repeats)
+        for k in k_values:
+            merges_k = merges[:k]  # the first k merges (all of them if training stopped early)
+            model_k = first_k_func(model, k)
+            seg_times, seg_result = track_time(seg_func, cleaned_input, model_k, repeats=repeats)
 
-        # # temporary corruption used for testing. Remove when done.
-        # if k == 50 and name == "vectorized":
-        #     merges = merges[:-1]  # removes the last pair from merges
+            # # temporary corruption used for testing. Remove when done.
+            # if k == 50 and name == "vectorized":
+            #     merges_k = merges_k[:-1]  # removes the last pair from merges_k
 
-        outputs[name] = {
-            "merges": merges,
-            "segmented": seg_result,
-        }
+            outputs[k][name] = {
+                "merges": merges_k,
+                "segmented": seg_result,
+            }
 
-        records.append({
-            "impl": name,
-            "k": k,
-            "k_learned": len(merges),
-            "train_times": train_times,
-            "seg_times": seg_times,
-            "merges_sha256": sha256_of_text(json.dumps(merges)),  # json.dumps(merges) converts merges into a string that can be encoded
-            "seg_sha256": sha256_of_text(seg_result),
-        })
+            records_by_k[k].append({
+                "impl": name,
+                "k": k,
+                "k_learned": len(merges_k),
+                "train_times": times_by_k[k],
+                "seg_times": seg_times,
+                "merges_sha256": sha256_of_text(json.dumps(merges_k)),  # json.dumps(merges_k) converts merges_k into a string that can be encoded
+                "seg_sha256": sha256_of_text(seg_result),
+            })
 
-        if name == reference:
-            continue
+            if name == reference:
+                continue
 
-        for key in ("merges", "segmented"):
-            if outputs[name][key] != outputs[reference][key]:
-                sys.exit(f"ERROR: {key} differ between {reference} and {name} for k={k}")
+            for key in ("merges", "segmented"):
+                if outputs[k][name][key] != outputs[k][reference][key]:
+                    sys.exit(f"ERROR: {key} differ between {reference} and {name} for k={k}")
 
+    # Return records ordered by k, then implementation, so each k's implementations are adjacent
+    records = []
+    for k in k_values:
+        records.extend(records_by_k[k])
     return records
 
 def save_results(path, meta, records):
@@ -214,6 +264,7 @@ def run_command(args):
         "impls": impl_names,
         "repeats": repeats,
         "warmup": WARMUP,
+        "timing": "checkpoint",  # train once to the largest k; smaller k times read along the way (older files: separate runs)
     }
 
     meta = {
@@ -246,25 +297,23 @@ def run_command(args):
             n_words = len(words)
             n_unique = len(set(words))
 
-            for k in k_values:
-                bar.set_description(f"Configs  size={size} k={k}")  # Displays the current running configuration
-                records = benchmark_config(training_text, cleaned_seg_text, k, impl_names, repeats)
-                for record in records:
-                    record.update(n_words=n_words, n_unique=n_unique)
-                    train_median = statistics.median(record["train_times"])
-                    seg_median = statistics.median(record["seg_times"])
+            bar.set_description(f"Configs  size={size}")  # every k for this size runs together
+            records = benchmark_config(training_text, cleaned_seg_text, k_values, impl_names, repeats)
+            for record in records:
+                record.update(n_words=n_words, n_unique=n_unique)
+                train_median = statistics.median(record["train_times"])
+                seg_median = statistics.median(record["seg_times"])
 
-                    note = f" (learned {record['k_learned']} of {k} merges)" if record["k_learned"] < record["k"] else ""
-                    # tqdm.write(f"size={record['n_words']:<7} k={record['k']:<6} {record['impl']:<11} train {train_median:8.4f}s segment {seg_median:8.6f}s {note}")
-                    tqdm.write(f"{record['n_words']:>{SIZE_WIDTH}} {record['k']:>{K_WIDTH}} {record['impl']:<{IMPL_WIDTH}} {train_median:>{TRAIN_WIDTH}.4f} {seg_median:>{SEG_WIDTH}.6f}{note}")
+                note = f" (learned {record['k_learned']} of {record['k']} merges)" if record["k_learned"] < record["k"] else ""
+                tqdm.write(f"{record['n_words']:>{SIZE_WIDTH}} {record['k']:>{K_WIDTH}} {record['impl']:<{IMPL_WIDTH}} {train_median:>{TRAIN_WIDTH}.4f} {seg_median:>{SEG_WIDTH}.6f}{note}")
 
-                all_records.extend(records)
+            all_records.extend(records)
 
-                # Saves after each (size, k) configuration so finished results survive a crash
-                if args.save is not None:
-                    save_results(path=path, meta=meta, records=all_records)
+            # Saves after each size (all of its k values) so finished results survive a crash
+            if args.save is not None:
+                save_results(path=path, meta=meta, records=all_records)
 
-                bar.update(1)
+            bar.update(len(k_values))  # the bar counts (size, k) configurations; this size finished all of its k values
 
             tqdm.write("")  # Blank line between different sizes for readability
 
@@ -466,7 +515,7 @@ def main():
                             help="one or more sizes of training corpus to benchmark")
     run_parser.add_argument("-c", "--corpus", default="data/SAMPLE_CORPUS.txt",
                             help="path to training text")
-    run_parser.add_argument("-k", "--k-values", nargs="+", type=non_negative_int, default=[20],
+    run_parser.add_argument("-k", "--k-values", nargs="+", type=positive_int, default=[20],
                             help="one or more merge counts to benchmark")
     run_parser.add_argument("-t", "--text", default="data/SAMPLE_SEGMENT.txt",
                             help="path to text being segmented")
