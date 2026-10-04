@@ -1,0 +1,509 @@
+{
+  "schema_version": 1,
+  "meta": {
+    "label": "baseline-sizes",
+    "timestamp": "2026-10-04T16:24:02",
+    "complete": true,
+    "settings": {
+      "corpus": ".\\data\\moby_dick.txt",
+      "text": ".\\data\\SEGMENT_STARWARS.txt",
+      "sizes": [
+        1000,
+        10000,
+        50000,
+        222110
+      ],
+      "k_values": [
+        100,
+        1000,
+        5000
+      ],
+      "impls": [
+        "naive",
+        "vectorized"
+      ],
+      "repeats": 3,
+      "warmup": 1,
+      "timing": "checkpoint"
+    },
+    "environment": {
+      "python_version": "3.12.4",
+      "numpy_version": "2.4.4"
+    },
+    "algorithm": {
+      "preprocessing": [
+        "letters a-zA-Z only",
+        "apostrophes between letters removed (don't --> dont)",
+        "every other run of non-letters becomes one space",
+        "case preserved"
+      ],
+      "tiebreak": [
+        "highest frequency-weighted pair count wins",
+        "ties go to the pair that appears first in the text",
+        " - (words in first-appearance order, then left-to-right within each word)"
+      ]
+    },
+    "inputs": {
+      "train_corpus_sha256": "0c9cf7627cf01b734f9518c9e740bbd8b75edff08ee2890a03db129394378e7c",
+      "segment_text_sha256": "95d58ab2d8d5334ebef0a7c192ab0d24310cac5ae7b70d0d3bfcba8d6a36bf00"
+    }
+  },
+  "records": [
+    {
+      "impl": "naive",
+      "k": 100,
+      "k_learned": 100,
+      "train_times": [
+        0.04018259979784489,
+        0.03637849981896579,
+        0.04223879985511303
+      ],
+      "seg_times": [
+        0.01698650000616908,
+        0.017719400115311146,
+        0.01892770011909306
+      ],
+      "merges_sha256": "c43424588a8e84ddc5e7ed1f375cd19b0303cce0e1bed42e3240707488786a57",
+      "seg_sha256": "fbf0e2d2a0ff6dcbfddcbf6b60fbbe7ba6ccb65a2f5560d5f05e74b0a3244ab0",
+      "n_words": 1000,
+      "n_unique": 471
+    },
+    {
+      "impl": "vectorized",
+      "k": 100,
+      "k_learned": 100,
+      "train_times": [
+        0.08086550002917647,
+        0.08571010013110936,
+        0.11964179994538426
+      ],
+      "seg_times": [
+        0.11057349992915988,
+        0.11145960004068911,
+        0.10970399994403124
+      ],
+      "merges_sha256": "c43424588a8e84ddc5e7ed1f375cd19b0303cce0e1bed42e3240707488786a57",
+      "seg_sha256": "fbf0e2d2a0ff6dcbfddcbf6b60fbbe7ba6ccb65a2f5560d5f05e74b0a3244ab0",
+      "n_words": 1000,
+      "n_unique": 471
+    },
+    {
+      "impl": "naive",
+      "k": 1000,
+      "k_learned": 1000,
+      "train_times": [
+        0.23035339987836778,
+        0.22833889978937805,
+        0.24963959981687367
+      ],
+      "seg_times": [
+        0.14162950008176267,
+        0.13159759994596243,
+        0.13366920012049377
+      ],
+      "merges_sha256": "e81455b1c943e7ca94de9fb0f2ece92b56743c7ec496967ac6bc4dec22eb29e6",
+      "seg_sha256": "2ca8c98bc87636c2013c22908864b3ff6353774bbb4f32ceae995d11f745ea66",
+      "n_words": 1000,
+      "n_unique": 471
+    },
+    {
+      "impl": "vectorized",
+      "k": 1000,
+      "k_learned": 1000,
+      "train_times": [
+        0.7285180001053959,
+        0.7780077001079917,
+        1.1098711998201907
+      ],
+      "seg_times": [
+        1.1593017999548465,
+        1.0586272000800818,
+        1.0601248000748456
+      ],
+      "merges_sha256": "e81455b1c943e7ca94de9fb0f2ece92b56743c7ec496967ac6bc4dec22eb29e6",
+      "seg_sha256": "2ca8c98bc87636c2013c22908864b3ff6353774bbb4f32ceae995d11f745ea66",
+      "n_words": 1000,
+      "n_unique": 471
+    },
+    {
+      "impl": "naive",
+      "k": 5000,
+      "k_learned": 1312,
+      "train_times": [
+        0.26145699992775917,
+        0.26078739995136857,
+        0.2807318000122905
+      ],
+      "seg_times": [
+        0.17105440003797412,
+        0.168204499874264,
+        0.1733639999292791
+      ],
+      "merges_sha256": "b1a6c69786d00f0c34381d59ff8c1731b8ddd61046c912f41e5d6406b60e8c76",
+      "seg_sha256": "b77ed9557f8796c629e4a254ab7a8733b7d968699e745d46f14feb4771d5dd2f",
+      "n_words": 1000,
+      "n_unique": 471
+    },
+    {
+      "impl": "vectorized",
+      "k": 5000,
+      "k_learned": 1312,
+      "train_times": [
+        0.9393180999904871,
+        1.004745300160721,
+        1.3383770999498665
+      ],
+      "seg_times": [
+        1.3618277001660317,
+        1.372106899973005,
+        1.347147500142455
+      ],
+      "merges_sha256": "b1a6c69786d00f0c34381d59ff8c1731b8ddd61046c912f41e5d6406b60e8c76",
+      "seg_sha256": "b77ed9557f8796c629e4a254ab7a8733b7d968699e745d46f14feb4771d5dd2f",
+      "n_words": 1000,
+      "n_unique": 471
+    },
+    {
+      "impl": "naive",
+      "k": 100,
+      "k_learned": 100,
+      "train_times": [
+        0.26737289992161095,
+        0.25068559986539185,
+        0.261780200060457
+      ],
+      "seg_times": [
+        0.015603600069880486,
+        0.014730199938639998,
+        0.015123199904337525
+      ],
+      "merges_sha256": "8f17e2faed36fc1065d4530a25d0c02b2fe9650ee0dae4049c9989ec250122ef",
+      "seg_sha256": "dbb845715168dfc272d4fddd7cdc0144315a3b4f5d08bcb4cbdcf781efa33efd",
+      "n_words": 10000,
+      "n_unique": 3143
+    },
+    {
+      "impl": "vectorized",
+      "k": 100,
+      "k_learned": 100,
+      "train_times": [
+        0.5126277999952435,
+        0.5115433000028133,
+        0.5275731000583619
+      ],
+      "seg_times": [
+        0.10278959991410375,
+        0.10742000001482666,
+        0.106447400059551
+      ],
+      "merges_sha256": "8f17e2faed36fc1065d4530a25d0c02b2fe9650ee0dae4049c9989ec250122ef",
+      "seg_sha256": "dbb845715168dfc272d4fddd7cdc0144315a3b4f5d08bcb4cbdcf781efa33efd",
+      "n_words": 10000,
+      "n_unique": 3143
+    },
+    {
+      "impl": "naive",
+      "k": 1000,
+      "k_learned": 1000,
+      "train_times": [
+        2.109898400027305,
+        2.0610793998930603,
+        2.101981299929321
+      ],
+      "seg_times": [
+        0.1142674998845905,
+        0.11291870009154081,
+        0.11510469997301698
+      ],
+      "merges_sha256": "64e1f129fe41ce5f9f1f2f46b9e589c486656f3580473fe7742271273202d656",
+      "seg_sha256": "cc80e363519fda594ad7260d135c4bc09070f5be2bec3774a4a50c8a11e04efb",
+      "n_words": 10000,
+      "n_unique": 3143
+    },
+    {
+      "impl": "vectorized",
+      "k": 1000,
+      "k_learned": 1000,
+      "train_times": [
+        4.716165899997577,
+        4.700159899890423,
+        4.741171600064263
+      ],
+      "seg_times": [
+        1.0482216000091285,
+        1.0317979999817908,
+        1.0369687001220882
+      ],
+      "merges_sha256": "64e1f129fe41ce5f9f1f2f46b9e589c486656f3580473fe7742271273202d656",
+      "seg_sha256": "cc80e363519fda594ad7260d135c4bc09070f5be2bec3774a4a50c8a11e04efb",
+      "n_words": 10000,
+      "n_unique": 3143
+    },
+    {
+      "impl": "naive",
+      "k": 5000,
+      "k_learned": 5000,
+      "train_times": [
+        6.540963799925521,
+        6.475626699859276,
+        6.549051600042731
+      ],
+      "seg_times": [
+        0.4609209999907762,
+        0.4727288999129087,
+        0.47037329990416765
+      ],
+      "merges_sha256": "7e90c92ac199e6faf41908e2ba86d2eb07cc3c9e7809f51247606a6080917ceb",
+      "seg_sha256": "af9b8e5ddf65148f0c72a54ead282367121fe3ecbfa8833eb4ebadbcbfc14ad7",
+      "n_words": 10000,
+      "n_unique": 3143
+    },
+    {
+      "impl": "vectorized",
+      "k": 5000,
+      "k_learned": 5000,
+      "train_times": [
+        21.774338900111616,
+        22.131828099954873,
+        21.761338599957526
+      ],
+      "seg_times": [
+        5.385428899899125,
+        5.602369100088254,
+        5.374084900133312
+      ],
+      "merges_sha256": "7e90c92ac199e6faf41908e2ba86d2eb07cc3c9e7809f51247606a6080917ceb",
+      "seg_sha256": "af9b8e5ddf65148f0c72a54ead282367121fe3ecbfa8833eb4ebadbcbfc14ad7",
+      "n_words": 10000,
+      "n_unique": 3143
+    },
+    {
+      "impl": "naive",
+      "k": 100,
+      "k_learned": 100,
+      "train_times": [
+        0.7515458001289517,
+        0.8369215000420809,
+        0.8248860999010503
+      ],
+      "seg_times": [
+        0.01717060012742877,
+        0.018985699862241745,
+        0.01735990005545318
+      ],
+      "merges_sha256": "bfc45a830bbaf75e87999a9dd0337aae6a0c7579357157bbaacc3041215fc45b",
+      "seg_sha256": "17ca745277724e30d073fb31e533a58228181d7ac7171476ef6ec473840e520c",
+      "n_words": 50000,
+      "n_unique": 8200
+    },
+    {
+      "impl": "vectorized",
+      "k": 100,
+      "k_learned": 100,
+      "train_times": [
+        1.467943900031969,
+        1.4668077998794615,
+        1.4744652998633683
+      ],
+      "seg_times": [
+        0.10962040000595152,
+        0.11405090009793639,
+        0.10934820002876222
+      ],
+      "merges_sha256": "bfc45a830bbaf75e87999a9dd0337aae6a0c7579357157bbaacc3041215fc45b",
+      "seg_sha256": "17ca745277724e30d073fb31e533a58228181d7ac7171476ef6ec473840e520c",
+      "n_words": 50000,
+      "n_unique": 8200
+    },
+    {
+      "impl": "naive",
+      "k": 1000,
+      "k_learned": 1000,
+      "train_times": [
+        6.236303100129589,
+        6.728128300048411,
+        6.6385434998665005
+      ],
+      "seg_times": [
+        0.12641630019061267,
+        0.12716319994069636,
+        0.12479320005513728
+      ],
+      "merges_sha256": "25aa7ba453d5f7c27d38e23935d6d2e3be31c906ed12ccbf5afac4ca7ea6a436",
+      "seg_sha256": "3c507a7f8abb50c03d15c3e39035377512017978bd5267ba0682d4180cb051b6",
+      "n_words": 50000,
+      "n_unique": 8200
+    },
+    {
+      "impl": "vectorized",
+      "k": 1000,
+      "k_learned": 1000,
+      "train_times": [
+        13.50217489991337,
+        13.37406549998559,
+        13.475401100004092
+      ],
+      "seg_times": [
+        1.0551021001301706,
+        1.025940699968487,
+        1.0498518000822514
+      ],
+      "merges_sha256": "25aa7ba453d5f7c27d38e23935d6d2e3be31c906ed12ccbf5afac4ca7ea6a436",
+      "seg_sha256": "3c507a7f8abb50c03d15c3e39035377512017978bd5267ba0682d4180cb051b6",
+      "n_words": 50000,
+      "n_unique": 8200
+    },
+    {
+      "impl": "naive",
+      "k": 5000,
+      "k_learned": 5000,
+      "train_times": [
+        24.511075100162998,
+        25.684911100193858,
+        25.334775299998
+      ],
+      "seg_times": [
+        0.49870159989222884,
+        0.4938173999544233,
+        0.4996853999327868
+      ],
+      "merges_sha256": "b29eb5aca0f53af768559c8baf68531b83c4e653dcba4368c9437872b1911c65",
+      "seg_sha256": "7006b2560ef201554f39555ff09a434f557263100caee93196a83733a397d9ea",
+      "n_words": 50000,
+      "n_unique": 8200
+    },
+    {
+      "impl": "vectorized",
+      "k": 5000,
+      "k_learned": 5000,
+      "train_times": [
+        63.39763069991022,
+        63.171065100003034,
+        60.035811899928376
+      ],
+      "seg_times": [
+        6.081441499991342,
+        5.940862599993125,
+        5.9196981999557465
+      ],
+      "merges_sha256": "b29eb5aca0f53af768559c8baf68531b83c4e653dcba4368c9437872b1911c65",
+      "seg_sha256": "7006b2560ef201554f39555ff09a434f557263100caee93196a83733a397d9ea",
+      "n_words": 50000,
+      "n_unique": 8200
+    },
+    {
+      "impl": "naive",
+      "k": 100,
+      "k_learned": 100,
+      "train_times": [
+        2.0487171998247504,
+        2.400892300065607,
+        1.9436459001153708
+      ],
+      "seg_times": [
+        0.018004900077357888,
+        0.018816899973899126,
+        0.018475899938493967
+      ],
+      "merges_sha256": "0800884d7dca25aa82f6cc8c50748a0e47059b6643c74acb11106184ad1b0739",
+      "seg_sha256": "79c2745977e69676edaaa2b7f4b8c075d49c7c7388b0d702aeda59aac8ba705f",
+      "n_words": 222110,
+      "n_unique": 18908
+    },
+    {
+      "impl": "vectorized",
+      "k": 100,
+      "k_learned": 100,
+      "train_times": [
+        3.5234121000394225,
+        3.363096500048414,
+        3.418125200085342
+      ],
+      "seg_times": [
+        0.11204269994050264,
+        0.10868759988807142,
+        0.1082508999388665
+      ],
+      "merges_sha256": "0800884d7dca25aa82f6cc8c50748a0e47059b6643c74acb11106184ad1b0739",
+      "seg_sha256": "79c2745977e69676edaaa2b7f4b8c075d49c7c7388b0d702aeda59aac8ba705f",
+      "n_words": 222110,
+      "n_unique": 18908
+    },
+    {
+      "impl": "naive",
+      "k": 1000,
+      "k_learned": 1000,
+      "train_times": [
+        17.755440399982035,
+        18.530530499992892,
+        18.098788400180638
+      ],
+      "seg_times": [
+        0.12898029992356896,
+        0.1389642001595348,
+        0.13124330015853047
+      ],
+      "merges_sha256": "3e74a7599ec2b43e3aada56121cabec3598318d5c46bb82f4b9e075a0bc62379",
+      "seg_sha256": "ee5ddad75d7b861e73b1fd8d44fce8e0c040bd5b615d3252c1792b6483063988",
+      "n_words": 222110,
+      "n_unique": 18908
+    },
+    {
+      "impl": "vectorized",
+      "k": 1000,
+      "k_learned": 1000,
+      "train_times": [
+        33.08330060006119,
+        30.951076400000602,
+        32.888662999961525
+      ],
+      "seg_times": [
+        1.0751253000926226,
+        1.103627200005576,
+        1.0558458000887185
+      ],
+      "merges_sha256": "3e74a7599ec2b43e3aada56121cabec3598318d5c46bb82f4b9e075a0bc62379",
+      "seg_sha256": "ee5ddad75d7b861e73b1fd8d44fce8e0c040bd5b615d3252c1792b6483063988",
+      "n_words": 222110,
+      "n_unique": 18908
+    },
+    {
+      "impl": "naive",
+      "k": 5000,
+      "k_learned": 5000,
+      "train_times": [
+        72.40356339979917,
+        70.75437390012667,
+        74.44259310001507
+      ],
+      "seg_times": [
+        0.5288667001295835,
+        0.5086826998740435,
+        0.5327928999904543
+      ],
+      "merges_sha256": "918b56449180777d3fe3fdd2d9c97830ae1a9151710e6cbc6c3989decb7a8987",
+      "seg_sha256": "c8a3e11d212252479f274bd16b81aaf06a5c2c6340968b20d349d1f2912ddcdf",
+      "n_words": 222110,
+      "n_unique": 18908
+    },
+    {
+      "impl": "vectorized",
+      "k": 5000,
+      "k_learned": 5000,
+      "train_times": [
+        151.85410280013457,
+        144.00446569989435,
+        147.56859840010293
+      ],
+      "seg_times": [
+        5.164868000196293,
+        5.287785799941048,
+        5.118759199976921
+      ],
+      "merges_sha256": "918b56449180777d3fe3fdd2d9c97830ae1a9151710e6cbc6c3989decb7a8987",
+      "seg_sha256": "c8a3e11d212252479f274bd16b81aaf06a5c2c6340968b20d349d1f2912ddcdf",
+      "n_words": 222110,
+      "n_unique": 18908
+    }
+  ]
+}

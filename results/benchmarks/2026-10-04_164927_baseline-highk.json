@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "meta": {
+    "label": "baseline-highk",
+    "timestamp": "2026-10-04T16:49:27",
+    "complete": true,
+    "settings": {
+      "corpus": ".\\data\\moby_dick.txt",
+      "text": ".\\data\\SEGMENT_STARWARS.txt",
+      "sizes": [
+        222110
+      ],
+      "k_values": [
+        10000,
+        20000,
+        30000
+      ],
+      "impls": [
+        "naive",
+        "vectorized"
+      ],
+      "repeats": 3,
+      "warmup": 1,
+      "timing": "checkpoint"
+    },
+    "environment": {
+      "python_version": "3.12.4",
+      "numpy_version": "2.4.4"
+    },
+    "algorithm": {
+      "preprocessing": [
+        "letters a-zA-Z only",
+        "apostrophes between letters removed (don't --> dont)",
+        "every other run of non-letters becomes one space",
+        "case preserved"
+      ],
+      "tiebreak": [
+        "highest frequency-weighted pair count wins",
+        "ties go to the pair that appears first in the text",
+        " - (words in first-appearance order, then left-to-right within each word)"
+      ]
+    },
+    "inputs": {
+      "train_corpus_sha256": "0c9cf7627cf01b734f9518c9e740bbd8b75edff08ee2890a03db129394378e7c",
+      "segment_text_sha256": "95d58ab2d8d5334ebef0a7c192ab0d24310cac5ae7b70d0d3bfcba8d6a36bf00"
+    }
+  },
+  "records": [
+    {
+      "impl": "naive",
+      "k": 10000,
+      "k_learned": 10000,
+      "train_times": [
+        126.15471099992283,
+        122.43724590004422,
+        122.97943829977885
+      ],
+      "seg_times": [
+        0.8843440001364797,
+        0.8868667001370341,
+        0.8551404001191258
+      ],
+      "merges_sha256": "bb199e81bf5b16a5c15bb99386bff53d8151a28a18001fc34a40d8c5329376a6",
+      "seg_sha256": "8d63947e259067f42c7769280644232378f65f94759d9c56468d406f5f40bcd7",
+      "n_words": 222110,
+      "n_unique": 18908
+    },
+    {
+      "impl": "vectorized",
+      "k": 10000,
+      "k_learned": 10000,
+      "train_times": [
+        259.37444619997405,
+        283.9963702999521,
+        289.25611130008474
+      ],
+      "seg_times": [
+        11.698461399879307,
+        11.814540500054136,
+        11.941636300180107
+      ],
+      "merges_sha256": "bb199e81bf5b16a5c15bb99386bff53d8151a28a18001fc34a40d8c5329376a6",
+      "seg_sha256": "8d63947e259067f42c7769280644232378f65f94759d9c56468d406f5f40bcd7",
+      "n_words": 222110,
+      "n_unique": 18908
+    },
+    {
+      "impl": "naive",
+      "k": 20000,
+      "k_learned": 20000,
+      "train_times": [
+        204.06551569979638,
+        194.515803999966,
+        199.30792870000005
+      ],
+      "seg_times": [
+        1.5532970000058413,
+        1.577532900031656,
+        1.5725553999654949
+      ],
+      "merges_sha256": "3f737fddf77cd89b513b2149738766b6de9cf05bdeefeedebcb026a7fb70a225",
+      "seg_sha256": "051a5053a6e60a175bb7368cb950201f02c1d3d6d44ddeb96878413fdcda9c54",
+      "n_words": 222110,
+      "n_unique": 18908
+    },
+    {
+      "impl": "vectorized",
+      "k": 20000,
+      "k_learned": 20000,
+      "train_times": [
+        516.5696390001103,
+        544.2766213000286,
+        562.4992581000552
+      ],
+      "seg_times": [
+        23.473547599976882,
+        23.211192100076005,
+        22.765907699940726
+      ],
+      "merges_sha256": "3f737fddf77cd89b513b2149738766b6de9cf05bdeefeedebcb026a7fb70a225",
+      "seg_sha256": "051a5053a6e60a175bb7368cb950201f02c1d3d6d44ddeb96878413fdcda9c54",
+      "n_words": 222110,
+      "n_unique": 18908
+    },
+    {
+      "impl": "naive",
+      "k": 30000,
+      "k_learned": 28184,
+      "train_times": [
+        237.4032879997976,
+        229.13332060002722,
+        235.60640079993755
+      ],
+      "seg_times": [
+        2.0946865000296384,
+        2.111398900160566,
+        2.0783294001594186
+      ],
+      "merges_sha256": "a63ec7bff5890a5bd5514cade1bb5241c4dbbdf0ae0ca3bf1c88381e5a9f7685",
+      "seg_sha256": "152f5b05d1058e0795d05e5878709ae2249623e0133a21b3ccf2e892bd402060",
+      "n_words": 222110,
+      "n_unique": 18908
+    },
+    {
+      "impl": "vectorized",
+      "k": 30000,
+      "k_learned": 28184,
+      "train_times": [
+        721.6864082000684,
+        742.5219756001607,
+        779.5563487000763
+      ],
+      "seg_times": [
+        33.04849169985391,
+        32.448258799966425,
+        33.02756049996242
+      ],
+      "merges_sha256": "a63ec7bff5890a5bd5514cade1bb5241c4dbbdf0ae0ca3bf1c88381e5a9f7685",
+      "seg_sha256": "152f5b05d1058e0795d05e5878709ae2249623e0133a21b3ccf2e892bd402060",
+      "n_words": 222110,
+      "n_unique": 18908
+    }
+  ]
+}
