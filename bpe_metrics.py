@@ -12,7 +12,10 @@ import bpe_naive as naive
 import bpe_vectorized as vec
 from datetime import datetime
 from pathlib import Path
-from tqdm import tqdm
+from rich.progress import (
+    Progress, SpinnerColumn, TextColumn, BarColumn,
+    MofNCompleteColumn, TimeElapsedColumn, TimeRemainingColumn
+)
 from rich.console import Console
 from rich.table import Table
 from rich import box
@@ -37,13 +40,17 @@ TIEBREAK = [
 ]
 
 # --- Display (these only affect how output looks) ---
-# Shared by both progress bars so their columns line up
-#   {desc:<28}                --> left-aligned description that is always 28 chars
-#   {percentage:3.0f}         --> percent done, 3 chars, no decimals
-#   {bar:25}                  --> bar itself, always 25 chars wide
-#   {n_fmt:>6}/{total_fmt:<6} --> running count, e.g. 412/600
-#   [{elapsed}<{remaining}]   --> time so far < estimated time left
-BAR_FORMAT = "{desc:<28} {percentage:3.0f}%|{bar:25}| {n_fmt:>6}/{total_fmt:<6} [{elapsed}<{remaining}]"
+def make_progress():
+    # One live display for run: the Configs task plus each implementation's train/segment task
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("{task.description:<44}"),  # format string that rich fills in later (NOT an f-string); wide enough for "  vectorized train (6 runs x 30000 merges)"
+        BarColumn(bar_width=25),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+    )
+
 
 # Results table column widths, shared by HEADER and each result now
 SIZE_WIDTH = 7
@@ -109,7 +116,7 @@ def valid_label(value):
         raise argparse.ArgumentTypeError(f"must contain only letters, digits, '-' or '_', got {value!r}")
     return value
 
-def time_training(train_func, text, k_values, repeats, merge_bar=None):
+def time_training(train_func, text, k_values, repeats, on_merge=None):
     max_k = max(k_values)                   # largest requested k in k_values
     times_by_k = {k: [] for k in k_values}  # each k starts with an empty list for training times
 
@@ -119,8 +126,8 @@ def time_training(train_func, text, k_values, repeats, merge_bar=None):
         def record_merge_time():
             timestamps.append(time.perf_counter())
 
-            if merge_bar is not None:
-                merge_bar.update(1)
+            if on_merge is not None:
+                on_merge()
 
         start = time.perf_counter()
         merges, model = train_func(text, max_k, record_merge_time)
@@ -159,7 +166,7 @@ def sha256_of_text(text):
     # Secure Hash Algorithm (sha)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-def benchmark_config(cleaned_corpus, cleaned_input, k_values, impl_names, repeats):
+def benchmark_config(cleaned_corpus, cleaned_input, k_values, impl_names, repeats, progress: Progress):
     # Benchmarks every k for one corpus size: each implementation trains once to the largest k,
     # and each smaller k's training time is read from that run (see time_training)
     reference = impl_names[0]  # used for comparison check
@@ -170,8 +177,22 @@ def benchmark_config(cleaned_corpus, cleaned_input, k_values, impl_names, repeat
     for name in impl_names:
         train_func, seg_func, first_k_func = IMPLEMENTATIONS[name]
 
-        with tqdm(total=max_k * (WARMUP + repeats), desc=f"{name} train", unit="merge", bar_format=BAR_FORMAT, leave=False, position=1) as merge_bar:
-            times_by_k, merges, model = time_training(train_func, cleaned_corpus, k_values, repeats, merge_bar)
+        # Every run (warmup + timed repeats) trains to max_k, so this bar counts runs x max_k merges in total
+        runs = WARMUP + repeats
+        train_bar_id = progress.add_task(description=f"  {name} train ({runs} runs x {max_k} merges)", total=runs * max_k)
+
+        # time_training calls on_merge() with no arguments after every merge, but advancing a rich bar
+        # needs to know WHICH bar (train_bar_id). The lambda wraps that call in a no-argument function:
+        #     lambda: progress.advance(...)   is the same as   def f(): progress.advance(...)
+        # It runs each time it is called (once per merge), not when it is created here.
+        times_by_k, merges, model = time_training(
+            train_func, cleaned_corpus, k_values, repeats,
+            on_merge=lambda: progress.advance(task_id=train_bar_id, advance=1),
+        )
+        progress.remove_task(train_bar_id)
+
+        # One segmentation bar per implementation; advances once per k value
+        seg_bar_id = progress.add_task(description=f"  {name} segment", total=len(k_values))
 
         for k in k_values:
             merges_k = merges[:k]  # the first k merges (all of them if training stopped early)
@@ -197,12 +218,16 @@ def benchmark_config(cleaned_corpus, cleaned_input, k_values, impl_names, repeat
                 "seg_sha256": sha256_of_text(seg_result),
             })
 
+            progress.advance(task_id=seg_bar_id, advance=1)  # before reference check otherwise `continue` skips and bar never moves
+
             if name == reference:
                 continue
 
             for key in ("merges", "segmented"):
                 if outputs[k][name][key] != outputs[k][reference][key]:
                     sys.exit(f"ERROR: {key} differ between {reference} and {name} for k={k}")
+
+        progress.remove_task(seg_bar_id)
 
     # Return records ordered by k, then implementation, so each k's implementations are adjacent
     records = []
@@ -228,6 +253,10 @@ def run_command(args):
     impl_names = list(dict.fromkeys(args.impl))     # Remove duplicates and create a list of implementation names to run (e.g., ["naive", "vectorized"])
     k_values = sorted(set(args.k_values))           # Removes duplicate k values and sorts e.g. -k 50 20 50 --> k_values = [20, 50]
     repeats = args.repeats
+
+    console = Console()
+    # progress = Progress()
+    progress = make_progress()
 
     # Training corpus
     corpus = naive.get_corpus(args.corpus)
@@ -290,22 +319,26 @@ def run_command(args):
     print(HEADER)
     print("-" * len(HEADER))
 
-    with tqdm(total=len(sizes) * len(k_values), desc="Configs", unit="config", bar_format=BAR_FORMAT) as bar:
+    with progress:
+        configs_bar_id = progress.add_task(description="Configs", total=len(sizes) * len(k_values))
         for size in sizes:
             words = word_list[:size]
             training_text = " ".join(words)
             n_words = len(words)
             n_unique = len(set(words))
 
-            bar.set_description(f"Configs  size={size}")  # every k for this size runs together
-            records = benchmark_config(training_text, cleaned_seg_text, k_values, impl_names, repeats)
+            progress.update(configs_bar_id, description=f"Configs  size={size}")
+            records = benchmark_config(training_text, cleaned_seg_text, k_values, impl_names, repeats, progress)
             for record in records:
                 record.update(n_words=n_words, n_unique=n_unique)
                 train_median = statistics.median(record["train_times"])
                 seg_median = statistics.median(record["seg_times"])
 
                 note = f" (learned {record['k_learned']} of {record['k']} merges)" if record["k_learned"] < record["k"] else ""
-                tqdm.write(f"{record['n_words']:>{SIZE_WIDTH}} {record['k']:>{K_WIDTH}} {record['impl']:<{IMPL_WIDTH}} {train_median:>{TRAIN_WIDTH}.4f} {seg_median:>{SEG_WIDTH}.6f}{note}")
+                progress.console.print(
+                    f"{record['n_words']:>{SIZE_WIDTH}} {record['k']:>{K_WIDTH}} {record['impl']:<{IMPL_WIDTH}} {train_median:>{TRAIN_WIDTH}.4f} {seg_median:>{SEG_WIDTH}.6f}{note}",
+                    soft_wrap=True
+                )
 
             all_records.extend(records)
 
@@ -313,9 +346,8 @@ def run_command(args):
             if args.save is not None:
                 save_results(path=path, meta=meta, records=all_records)
 
-            bar.update(len(k_values))  # the bar counts (size, k) configurations; this size finished all of its k values
-
-            tqdm.write("")  # Blank line between different sizes for readability
+            progress.advance(task_id=configs_bar_id, advance=len(k_values))
+            progress.console.print()
 
     if len(impl_names) > 1:
         print(f"Outputs match: {', '.join(impl_names)}\n")
@@ -505,6 +537,10 @@ def report_command(args):
     print_results_table(meta, data["records"], console)
 
 def main():
+    # Always write output as UTF-8. When output is redirected to a file (e.g. "> log.txt"), Windows otherwise
+    # uses an older encoding (cp1252) that can't represent rich's spinner and bar characters, and crashes
+    sys.stdout.reconfigure(encoding="utf-8")
+
     parser = argparse.ArgumentParser(description="Benchmark and compare the naive and vectorized BPE implementations.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
