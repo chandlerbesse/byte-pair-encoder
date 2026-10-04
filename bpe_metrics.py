@@ -20,6 +20,10 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
+
+# ===== Settings =====
+# Values that affect what is measured, and descriptions of the implementations' rules
+
 # --- Benchmark settings (these affect the measurements) ---
 INITIAL_VOCAB = ["_"] + list(string.ascii_letters)  # must match the vocab bpe_naive/bpe_vectorized build in main()
 WARMUP = 1  # untimed runs before each measurement; also recorded in saved settings
@@ -39,28 +43,9 @@ TIEBREAK = [
     " - (words in first-appearance order, then left-to-right within each word)",
 ]
 
-# --- Display (these only affect how output looks) ---
-def make_progress():
-    # One live display for run: the Configs task plus each implementation's train/segment task
-    return Progress(
-        SpinnerColumn(),
-        TextColumn("{task.description:<44}"),  # format string that rich fills in later (NOT an f-string); wide enough for "  vectorized train (6 runs x 30000 merges)"
-        BarColumn(bar_width=25),
-        MofNCompleteColumn(),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-    )
 
-
-# Results table column widths, shared by HEADER and each result now
-SIZE_WIDTH = 7
-K_WIDTH = 6
-IMPL_WIDTH = 11
-TRAIN_WIDTH = 10
-SEG_WIDTH = 12
-
-HEADER = (f"{'size':>{SIZE_WIDTH}} {'k':>{K_WIDTH}} {'impl':<{IMPL_WIDTH}} "
-          f"{'train (s)':>{TRAIN_WIDTH}} {'segment (s)':>{SEG_WIDTH}}")
+# ===== Implementations =====
+# Adapters that give bpe_naive and bpe_vectorized the same interface, plus the registry of them
 
 def train_naive(cleaned_text, k, on_merge=None):
     _, merges_dict = naive.train_bpe(INITIAL_VOCAB, cleaned_text, k, on_merge=on_merge)
@@ -99,22 +84,9 @@ IMPLEMENTATIONS = {
     "vectorized": (train_vectorized, segment_vectorized, get_first_k_vectorized),
 }
 
-def non_negative_int(value):
-    ivalue = int(value)
-    if ivalue < 0:
-        raise argparse.ArgumentTypeError(f"must be a non-negative integer, got {ivalue}")
-    return ivalue
 
-def positive_int(value):
-    ivalue = int(value)
-    if ivalue <= 0:
-        raise argparse.ArgumentTypeError(f"must be a positive integer, got {ivalue}")
-    return ivalue
-
-def valid_label(value):
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
-        raise argparse.ArgumentTypeError(f"must contain only letters, digits, '-' or '_', got {value!r}")
-    return value
+# ===== Timing =====
+# How durations are measured: these decide what the reported numbers mean
 
 def time_training(train_func, text, k_values, repeats, on_merge=None):
     max_k = max(k_values)                   # largest requested k in k_values
@@ -161,6 +133,10 @@ def track_time(func, *args, repeats, warmup=WARMUP):
         times.append(elapsed_time)
 
     return times, result
+
+
+# ===== Benchmarking =====
+# Runs every implementation for one corpus size, checks their outputs agree, and builds the records
 
 def sha256_of_text(text):
     # Secure Hash Algorithm (sha)
@@ -235,6 +211,10 @@ def benchmark_config(cleaned_corpus, cleaned_input, k_values, impl_names, repeat
         records.extend(records_by_k[k])
     return records
 
+
+# ===== Results files =====
+# Writing and reading the saved JSON format (schema_version, meta, records), and checking a file's contents
+
 def save_results(path, meta, records):
     data = {
         "schema_version": SCHEMA_VERSION,
@@ -247,6 +227,66 @@ def save_results(path, meta, records):
     with open(tmp_path, "w", encoding="utf-8") as file:
         json.dump(data, file, indent=2)
     tmp_path.replace(path)
+
+def load_results(path):
+    try:
+        with open(path, encoding="utf-8") as file:
+            data = json.load(file)
+    except FileNotFoundError:
+        sys.exit(f"ERROR: results file not found: {path}")
+
+    version = data.get("schema_version")
+    if version != SCHEMA_VERSION:
+        sys.exit(f"ERROR: {path} has schema_version {version}, expected {SCHEMA_VERSION}")
+
+    return data
+
+def find_missing(meta, records):
+    settings = meta["settings"]
+
+    # (size, k) is enough: run saves a configuration only after every implementation finishes
+    planned = {(size, k) for size in settings["sizes"] for k in settings["k_values"]}
+    finished = {(record["n_words"], record["k"]) for record in records}
+    missing = planned - finished  # everything in planned that is NOT in finished
+
+    return sorted(missing)  # sets have no order; returns a list of tuples sorted by size, then k
+
+
+# ===== Display: run =====
+# The live progress display and the result lines printed while run is working (these only affect how output looks)
+
+def make_progress():
+    # One live display for run: the Configs task plus each implementation's train/segment task
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("{task.description:<44}"),  # format string that rich fills in later (NOT an f-string); wide enough for "  vectorized train (6 runs x 30000 merges)"
+        BarColumn(bar_width=25),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+    )
+
+# Results table column widths, shared by HEADER and each result now
+SIZE_WIDTH = 7
+K_WIDTH = 6
+IMPL_WIDTH = 11
+TRAIN_WIDTH = 10
+SEG_WIDTH = 12
+
+HEADER = (f"{'size':>{SIZE_WIDTH}} {'k':>{K_WIDTH}} {'impl':<{IMPL_WIDTH}} "
+          f"{'train (s)':>{TRAIN_WIDTH}} {'segment (s)':>{SEG_WIDTH}}")
+
+
+# ===== Display: report =====
+# The summary and results table shown by report (and at the end of run)
+
+def format_seconds(t):
+    if t >= 1:
+        return f"{t:.4f}  s"
+    elif t >= 0.001:
+        return f"{t * 1000:.4f} ms"
+    else:
+        return f"{t * 1_000_000:.4f} us"
 
 def print_summary(meta, console):
     label = meta["label"] or "(not saved)"
@@ -279,37 +319,6 @@ def print_summary(meta, console):
 
     # Display grid table
     console.print(grid)
-
-def load_results(path):
-    try:
-        with open(path, encoding="utf-8") as file:
-            data = json.load(file)
-    except FileNotFoundError:
-        sys.exit(f"ERROR: results file not found: {path}")
-
-    version = data.get("schema_version")
-    if version != SCHEMA_VERSION:
-        sys.exit(f"ERROR: {path} has schema_version {version}, expected {SCHEMA_VERSION}")
-
-    return data
-
-def find_missing(meta, records):
-    settings = meta["settings"]
-
-    # (size, k) is enough: run saves a configuration only after every implementation finishes
-    planned = {(size, k) for size in settings["sizes"] for k in settings["k_values"]}
-    finished = {(record["n_words"], record["k"]) for record in records}
-    missing = planned - finished  # everything in planned that is NOT in finished
-
-    return sorted(missing)  # sets have no order; returns a list of tuples sorted by size, then k
-
-def format_seconds(t):
-    if t >= 1:
-        return f"{t:.4f}  s"
-    elif t >= 0.001:
-        return f"{t * 1000:.4f} ms"
-    else:
-        return f"{t * 1_000_000:.4f} us"
 
 def print_results_table(meta, records, console):
     impl_names = meta["settings"]["impls"]
@@ -386,6 +395,10 @@ def print_results_table(meta, records, console):
         table.add_row(*row, end_section=(next_config != config))
 
     console.print(table)
+
+
+# ===== Commands =====
+# What `run` and `report` do; main() below calls one of these
 
 def run_command(args):
     started = datetime.now()                        # one moment used for both the filename and the saved timestamp
@@ -490,7 +503,7 @@ def run_command(args):
 
     # Finished successfully, change "complete" flag to True
     meta["complete"] = True
-    
+
     # Only saves results if args.save is not None
     if args.save is not None:
         save_results(path=path, meta=meta, records=all_records)
@@ -499,7 +512,7 @@ def run_command(args):
     print_summary(meta, console)
     print()
     print_results_table(meta, all_records, console)
-    
+
     if len(impl_names) > 1:
         print(f"Outputs match: {', '.join(impl_names)}\n")
     else:
@@ -544,6 +557,27 @@ def report_command(args):
 
     print()
     print_results_table(meta, data["records"], console)
+
+
+# ===== Command-line interface =====
+# Argument validators used by argparse, and main(), which reads the command line and runs a command
+
+def non_negative_int(value):
+    ivalue = int(value)
+    if ivalue < 0:
+        raise argparse.ArgumentTypeError(f"must be a non-negative integer, got {ivalue}")
+    return ivalue
+
+def positive_int(value):
+    ivalue = int(value)
+    if ivalue <= 0:
+        raise argparse.ArgumentTypeError(f"must be a positive integer, got {ivalue}")
+    return ivalue
+
+def valid_label(value):
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+        raise argparse.ArgumentTypeError(f"must contain only letters, digits, '-' or '_', got {value!r}")
+    return value
 
 def main():
     # Always write output as UTF-8. When output is redirected to a file (e.g. "> log.txt"), Windows otherwise
