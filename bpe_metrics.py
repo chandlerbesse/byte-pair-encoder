@@ -248,6 +248,145 @@ def save_results(path, meta, records):
         json.dump(data, file, indent=2)
     tmp_path.replace(path)
 
+def print_summary(meta, console):
+    label = meta["label"] or "(not saved)"
+    settings = meta["settings"]
+    algorithm = meta.get("algorithm", {})   # Use empty dict if algorithm info is missing
+    env = meta.get("environment", {})       # Use empty dict if environment info is missing
+    status = "complete" if meta["complete"] else "PARTIAL (stopped early)"
+    sizes = ", ".join(str(s) for s in settings["sizes"])
+    k_values = ", ".join(str(k) for k in settings["k_values"])
+    impls = ", ".join(settings["impls"])
+    cleaning = "\n".join(algorithm.get("preprocessing", ["unknown"]))
+    tiebreak = "\n".join(algorithm.get("tiebreak", ["unknown"]))
+
+    # --- Grid settings ---
+    # Defining the grid table
+    grid = Table.grid(padding=(0, 2))   # 0 lines above/below, 2 spaces between columns
+
+    # Defining columns in grid
+    grid.add_column(style="bold")       # labels
+    grid.add_column()                   # values
+
+    # Defining rows in grid
+    grid.add_row("Run", f"{label}   {meta['timestamp']}   {status}")
+    grid.add_row("Corpus", f"{settings['corpus']}   Text: {settings['text']}")
+    grid.add_row("Sizes", f"{sizes}   k: {k_values}")
+    grid.add_row("Impls", f"{impls}   repeats={settings['repeats']}  warmup={settings['warmup']}")
+    grid.add_row("Env", f"Python: {env.get('python_version', 'unknown')}, NumPy: {env.get('numpy_version', 'unknown')}")
+    grid.add_row("Cleaning", cleaning)
+    grid.add_row("Tie-break", tiebreak)
+
+    # Display grid table
+    console.print(grid)
+
+def load_results(path):
+    try:
+        with open(path, encoding="utf-8") as file:
+            data = json.load(file)
+    except FileNotFoundError:
+        sys.exit(f"ERROR: results file not found: {path}")
+
+    version = data.get("schema_version")
+    if version != SCHEMA_VERSION:
+        sys.exit(f"ERROR: {path} has schema_version {version}, expected {SCHEMA_VERSION}")
+
+    return data
+
+def find_missing(meta, records):
+    settings = meta["settings"]
+
+    # (size, k) is enough: run saves a configuration only after every implementation finishes
+    planned = {(size, k) for size in settings["sizes"] for k in settings["k_values"]}
+    finished = {(record["n_words"], record["k"]) for record in records}
+    missing = planned - finished  # everything in planned that is NOT in finished
+
+    return sorted(missing)  # sets have no order; returns a list of tuples sorted by size, then k
+
+def format_seconds(t):
+    if t >= 1:
+        return f"{t:.4f}  s"
+    elif t >= 0.001:
+        return f"{t * 1000:.4f} ms"
+    else:
+        return f"{t * 1_000_000:.4f} us"
+
+def print_results_table(meta, records, console):
+    impl_names = meta["settings"]["impls"]
+    reference = impl_names[0]  # same rule as run's cross-check: the first implementation is the reference
+    show_speedup = len(impl_names) > 1
+
+    any_early_stops = any(record["k_learned"] < record["k"] for record in records)
+
+    # Interleave implementations: sort by size, then k, then each impl's position in settings (reference first)
+    impl_order = {name: i for i, name in enumerate(impl_names)}
+    records = sorted(records, key=lambda record: (record["n_words"], record["k"], impl_order[record["impl"]]))
+
+    table = Table(
+        box=box.SIMPLE,
+        header_style="bold italic",
+        caption="* stopped early: no more pairs to merge" if any_early_stops else None,
+        caption_justify="left",
+        row_styles=["", "dim"],
+    )
+    table.add_column("size", justify="right")
+    table.add_column("unique", justify="right")
+    table.add_column("k", justify="right")
+    table.add_column("impl")
+    table.add_column("learned", justify="right")
+    table.add_column("train median", justify="right", style="blue")
+    table.add_column("train min", justify="right")
+    table.add_column("train max", justify="right")
+    table.add_column("spread", justify="right")  # (max - min) / median: how noisy the repeats were
+    table.add_column("segment median", justify="right")
+    if show_speedup:
+        table.add_column(f"vs {reference}", justify="right")  # reference time / this time; above 1x = faster
+
+    reference_medians = {}  # (size, k) -> the reference implementation's train median
+    for i, record in enumerate(records):
+        config = (record["n_words"], record["k"])
+        train_times = record["train_times"]
+        train_median = statistics.median(train_times)
+        spread = (max(train_times) - min(train_times)) / train_median  # the lower the percentage, the more consistent training was
+
+        if record["k_learned"] < record["k"]:
+            k_learned = f"[bold italic]*{record['k_learned']}[/bold italic]"
+        else:
+            k_learned = str(record["k_learned"])
+
+        row = [
+            str(record["n_words"]),
+            str(record["n_unique"]),
+            str(record["k"]),
+            record["impl"],
+            k_learned,
+            format_seconds(train_median),
+            format_seconds(min(train_times)),
+            format_seconds(max(train_times)),
+            f"{spread:.0%}",
+            format_seconds(statistics.median(record["seg_times"])),
+        ]
+
+        if show_speedup:
+            if record["impl"] == reference:
+                reference_medians[config] = train_median
+                row.append("")  # the reference isn't compared with itself
+            else:
+                ratio = reference_medians[config] / train_median
+                if ratio < 1:
+                    ratio = 1 / ratio
+                    row.append(f"[bold red]{ratio:.2f}x slower[/bold red]")
+                elif ratio > 1:
+                    row.append(f"[bold green]{ratio:.2f}x faster[/bold green]")
+                else:
+                    row.append(f"{ratio:.2f}x (same)")
+
+        # A blank line after the last row of each (size, k) group
+        next_config = (records[i + 1]["n_words"], records[i + 1]["k"]) if i + 1 < len(records) else None
+        table.add_row(*row, end_section=(next_config != config))
+
+    console.print(table)
+
 def run_command(args):
     started = datetime.now()                        # one moment used for both the filename and the saved timestamp
     impl_names = list(dict.fromkeys(args.impl))     # Remove duplicates and create a list of implementation names to run (e.g., ["naive", "vectorized"])
@@ -349,156 +488,26 @@ def run_command(args):
             progress.advance(task_id=configs_bar_id, advance=len(k_values))
             progress.console.print()
 
+    # Finished successfully, change "complete" flag to True
+    meta["complete"] = True
+    
+    # Only saves results if args.save is not None
+    if args.save is not None:
+        save_results(path=path, meta=meta, records=all_records)
+
+    print()
+    print_summary(meta, console)
+    print()
+    print_results_table(meta, all_records, console)
+    
     if len(impl_names) > 1:
         print(f"Outputs match: {', '.join(impl_names)}\n")
     else:
         print("Only one implementation selected; outputs not cross-checked\n")
 
-    # Finished successfully, change "complete" flag to True
-    meta["complete"] = True
-
-    # Only saves results if args.save is not None
     if args.save is not None:
-        save_results(path=path, meta=meta, records=all_records)
         print(f"Benchmark results saved to {path}")
-
-def load_results(path):
-    try:
-        with open(path, encoding="utf-8") as file:
-            data = json.load(file)
-    except FileNotFoundError:
-        sys.exit(f"ERROR: results file not found: {path}")
-
-    version = data.get("schema_version")
-    if version != SCHEMA_VERSION:
-        sys.exit(f"ERROR: {path} has schema_version {version}, expected {SCHEMA_VERSION}")
-
-    return data
-
-def print_summary(meta, console):
-    settings = meta["settings"]
-    algorithm = meta.get("algorithm", {})   # Use empty dict if algorithm info is missing
-    env = meta.get("environment", {})       # Use empty dict if environment info is missing
-    status = "complete" if meta["complete"] else "PARTIAL (stopped early)"
-    sizes = ", ".join(str(s) for s in settings["sizes"])
-    k_values = ", ".join(str(k) for k in settings["k_values"])
-    impls = ", ".join(settings["impls"])
-    cleaning = "\n".join(algorithm.get("preprocessing", ["unknown"]))
-    tiebreak = "\n".join(algorithm.get("tiebreak", ["unknown"]))
-
-    # --- Grid settings ---
-    # Defining the grid table
-    grid = Table.grid(padding=(0, 2))   # 0 lines above/below, 2 spaces between columns
-
-    # Defining columns in grid
-    grid.add_column(style="bold")       # labels
-    grid.add_column()                   # values
-
-    # Defining rows in grid
-    grid.add_row("Run", f"{meta['label']}   {meta['timestamp']}   {status}")
-    grid.add_row("Corpus", f"{settings['corpus']}   Text: {settings['text']}")
-    grid.add_row("Sizes", f"{sizes}   k: {k_values}")
-    grid.add_row("Impls", f"{impls}   repeats={settings['repeats']}  warmup={settings['warmup']}")
-    grid.add_row("Env", f"Python: {env.get('python_version', 'unknown')}, NumPy: {env.get('numpy_version', 'unknown')}")
-    grid.add_row("Cleaning", cleaning)
-    grid.add_row("Tie-break", tiebreak)
-
-    # Display grid table
-    console.print(grid)
-
-def find_missing(meta, records):
-    settings = meta["settings"]
-
-    # (size, k) is enough: run saves a configuration only after every implementation finishes
-    planned = {(size, k) for size in settings["sizes"] for k in settings["k_values"]}
-    finished = {(record["n_words"], record["k"]) for record in records}
-    missing = planned - finished  # everything in planned that is NOT in finished
-
-    return sorted(missing)  # sets have no order; returns a list of tuples sorted by size, then k
-
-def format_seconds(t):
-    if t >= 1:
-        return f"{t:.4f}  s"
-    elif t >= 0.001:
-        return f"{t * 1000:.4f} ms"
-    else:
-        return f"{t * 1_000_000:.4f} us"
-
-def print_results_table(meta, records, console):
-    impl_names = meta["settings"]["impls"]
-    reference = impl_names[0]  # same rule as run's cross-check: the first implementation is the reference
-    show_speedup = len(impl_names) > 1
-
-    any_early_stops = any(record["k_learned"] < record["k"] for record in records)
-
-    # Interleave implementations: sort by size, then k, then each impl's position in settings (reference first)
-    impl_order = {name: i for i, name in enumerate(impl_names)}
-    records = sorted(records, key=lambda record: (record["n_words"], record["k"], impl_order[record["impl"]]))
-
-    table = Table(
-        box=box.SIMPLE,
-        header_style="bold italic",
-        caption="* stopped early: no more pairs to merge" if any_early_stops else None,
-        caption_justify="left",
-        row_styles=["", "dim"],
-    )
-    table.add_column("size", justify="right")
-    table.add_column("unique", justify="right")
-    table.add_column("k", justify="right")
-    table.add_column("impl")
-    table.add_column("learned", justify="right")
-    table.add_column("train median", justify="right", style="blue")
-    table.add_column("train min", justify="right")
-    table.add_column("train max", justify="right")
-    table.add_column("spread", justify="right")  # (max - min) / median: how noisy the repeats were
-    table.add_column("segment median", justify="right")
-    if show_speedup:
-        table.add_column(f"vs {reference}", justify="right")  # reference time / this time; above 1x = faster
-
-    reference_medians = {}  # (size, k) -> the reference implementation's train median
-    for i, record in enumerate(records):
-        config = (record["n_words"], record["k"])
-        train_times = record["train_times"]
-        train_median = statistics.median(train_times)
-        spread = (max(train_times) - min(train_times)) / train_median  # the lower the percentage, the more consistent training was
-
-        if record["k_learned"] < record["k"]:
-            k_learned = f"[bold italic]*{record['k_learned']}[/bold italic]"
-        else:
-            k_learned = str(record["k_learned"])
-
-        row = [
-            str(record["n_words"]),
-            str(record["n_unique"]),
-            str(record["k"]),
-            record["impl"],
-            k_learned,
-            format_seconds(train_median),
-            format_seconds(min(train_times)),
-            format_seconds(max(train_times)),
-            f"{spread:.0%}",
-            format_seconds(statistics.median(record["seg_times"])),
-        ]
-
-        if show_speedup:
-            if record["impl"] == reference:
-                reference_medians[config] = train_median
-                row.append("")  # the reference isn't compared with itself
-            else:
-                ratio = reference_medians[config] / train_median
-                if ratio < 1:
-                    ratio = 1 / ratio
-                    row.append(f"[bold red]{ratio:.2f}x slower[/bold red]")
-                elif ratio > 1:
-                    row.append(f"[bold green]{ratio:.2f}x faster[/bold green]")
-                else:
-                    row.append(f"{ratio:.2f}x (same)")
-
-        # A blank line after the last row of each (size, k) group
-        next_config = (records[i + 1]["n_words"], records[i + 1]["k"]) if i + 1 < len(records) else None
-        table.add_row(*row, end_section=(next_config != config))
-
-    console.print(table)
+        print(f"View again with: py bpe_metrics.py report {path}\n")
 
 def report_command(args):
     if args.path is None:
