@@ -298,7 +298,7 @@ def print_summary(meta, console):
     k_values = ", ".join(str(k) for k in settings["k_values"])
     impls = ", ".join(settings["impls"])
     cleaning = "\n".join(algorithm.get("preprocessing", ["unknown"]))
-    tiebreak = "\n".join(algorithm.get("tiebreak", ["unknown"]))
+    tie_break = "\n".join(algorithm.get("tiebreak", ["unknown"]))
 
     # --- Grid settings ---
     # Defining the grid table
@@ -315,7 +315,7 @@ def print_summary(meta, console):
     grid.add_row("Impls", f"{impls}   repeats={settings['repeats']}  warmup={settings['warmup']}")
     grid.add_row("Env", f"Python: {env.get('python_version', 'unknown')}, NumPy: {env.get('numpy_version', 'unknown')}")
     grid.add_row("Cleaning", cleaning)
-    grid.add_row("Tie-break", tiebreak)
+    grid.add_row("Tie-break", tie_break)
 
     # Display grid table
     console.print(grid)
@@ -395,6 +395,60 @@ def print_results_table(meta, records, console):
         table.add_row(*row, end_section=(next_config != config))
 
     console.print(table)
+
+
+# ===== Display: compare =====
+# The side-by-side summary shown by compare
+
+def summary_fields(meta: dict):
+    # One run's summary as {field label: display text}; used for each column of the comparison
+    settings = meta["settings"]
+    env = meta.get("environment", {})
+    algorithm = meta.get("algorithm", {})
+    
+    label = meta["label"] or "(not saved)"
+    status = "complete" if meta["complete"] else "PARTIAL (stopped early)"
+    sizes = ", ".join(str(s) for s in settings["sizes"])
+    k_values = ", ".join(str(k) for k in settings["k_values"])
+    impls = ", ".join(settings["impls"])
+    timing = settings.get("timing", "separate")
+    python_version = env.get("python_version", "unknown")
+    numpy_version = env.get("numpy_version", "unknown")
+    cleaning = "\n".join(algorithm.get("preprocessing", ["unknown"]))
+    tie_break = "\n".join(algorithm.get("tiebreak", ["unknown"]))
+
+    return {
+        "Label": label,
+        "Timestamp": meta["timestamp"],
+        "Status": status,
+        "Corpus": settings["corpus"],
+        "Text": settings["text"],
+        "Sizes": sizes,
+        "k": k_values,
+        "Impls": impls,
+        "Repeats": str(settings["repeats"]),
+        "Warmup": str(settings["warmup"]),
+        "Timing": timing,
+        "Python": python_version,
+        "NumPy": numpy_version,
+        "Cleaning": cleaning,
+        "Tie-break": tie_break,
+    }
+
+def print_comparison_summary(baseline_meta, current_meta, console):
+    baseline_fields = summary_fields(baseline_meta)
+    current_fields = summary_fields(current_meta)
+
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="bold", justify="right")
+    grid.add_column()
+    grid.add_column()
+
+    grid.add_row("", "[bold]Baseline[/bold]", "[bold]Current[/bold]")  # a header row
+    for field in baseline_fields:
+        grid.add_row(field, baseline_fields[field], current_fields[field])
+
+    console.print(grid)
 
 
 # ===== Commands =====
@@ -558,6 +612,14 @@ def report_command(args):
     print()
     print_results_table(meta, data["records"], console)
 
+def compare_command(args):
+    # Compares two saved runs: the baseline (the reference point) and the current run (usually after a code change)
+    baseline = load_results(args.baseline)
+    current = load_results(args.current)
+    console = Console()
+
+    print_comparison_summary(baseline["meta"], current["meta"], console)
+
 
 # ===== Command-line interface =====
 # Argument validators used by argparse, and main(), which reads the command line and runs a command
@@ -607,12 +669,18 @@ def main():
     report_parser.add_argument("path", nargs="?", default=None,
                                help="saved results file (default: most recent in results/benchmarks)")
 
+    compare_parser = subparsers.add_parser("compare", help="compare a run against a baseline run")
+    compare_parser.add_argument("baseline", help="saved results file to compare against (the reference point)")
+    compare_parser.add_argument("current", help="saved results file to check (e.g. a run after a code change)")
+
     args = parser.parse_args()
 
     if args.command == "run":
         run_command(args)
     elif args.command == "report":
         report_command(args)
+    elif args.command == "compare":
+        compare_command(args)
 
 if __name__ == "__main__":
     main()
