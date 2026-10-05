@@ -272,6 +272,26 @@ def match_records(baseline_records, current_records):
 
     return matched, only_baseline, only_current, baseline_map, current_map
 
+def find_output_differences(baseline_map, current_map, matched_keys):
+    # {(size, k): {"merges", "segmentation"}} for each matched configuration whose outputs differ
+    # between the two runs; configurations with identical outputs are left out, so {} means all identical.
+    # Grouped by (size, k), not by implementation: run already checks that all implementations agree.
+    diffs = {}
+    for key in matched_keys:
+        size, k, _ = key
+        baseline_record = baseline_map[key]
+        current_record = current_map[key]
+
+        if baseline_record["merges_sha256"] != current_record["merges_sha256"]:
+            # diffs[f"({size}, {k})"].add("merges")         # fails because empty set isn't created yet
+            diffs.setdefault((size, k), set()).add("merges")
+
+        if baseline_record["seg_sha256"] != current_record["seg_sha256"]:
+            # diffs[f"({size}, {k})"].add("segmentation")   # fails because empty set isn't created yet
+            diffs.setdefault((size, k), set()).add("segmentation")
+
+    return diffs
+
 def configs_by_size(configs):
     # {size: [k, ...]} from a collection of (size, k) pairs, sorted by size then k
     grouped = {}
@@ -282,7 +302,7 @@ def configs_by_size(configs):
 def print_configs(title, configs):
     # Prints a heading, then one line per size; or "(none)" when there are no configurations
     if not configs:                            # an empty set counts as False
-        print(f"{title} (none)")
+        print(f"{title}\n  (none)")
         return                                 # stop here; nothing else to print
     print(title)
     for size, k_list in configs_by_size(configs).items():
@@ -488,6 +508,27 @@ def print_comparison_summary(baseline_meta, current_meta, console):
 
     console.print(grid)
 
+def print_output_differences(diffs: dict[tuple[int, int], set[str]], total_matched: int):
+    # Prints one line if every matched configuration's outputs are identical; otherwise one line
+    # per size, listing its changed k values and which outputs changed, e.g.
+    #   size=10000: k=1000 (merges), k=5000 (merges, segmentation)
+    # diffs comes from find_output_differences: {(size, k): {"merges", "segmentation"}}
+
+    if not diffs:
+        print(f"Outputs identical in all {total_matched} matched configurations")
+        return
+
+    print(f"Outputs differ in {len(diffs)} of {total_matched} matched configurations:")
+
+    for size, k_list in configs_by_size(diffs.keys()).items():  # {size: [k, ...]}, sorted by size then k
+        parts = []  # one piece of text per changed k, e.g. "k=1000 (merges, segmentation)"
+        for k in k_list:
+            changed_outputs = ", ".join(sorted(diffs[(size, k)]))
+            text = f"k={k} ({changed_outputs})"
+            parts.append(text)
+
+        print(f"  size={size}: {', '.join(parts)}")
+
 
 # ===== Commands =====
 # What `run` and `report` do; main() below calls one of these
@@ -669,12 +710,17 @@ def compare_command(args):
     only_baseline_configs = {(size, k) for size, k, _ in only_baseline_keys}
     only_current_configs = {(size, k) for size, k, _ in only_current_keys}
 
+    print()
     print(f"Matched {total_matched} of {total_baseline} baseline configurations")
     print_configs("Only in baseline:", only_baseline_configs)
     print_configs("Only in current:", only_current_configs)
 
     if not matched_keys:
         sys.exit("No configurations in common; nothing to compare")
+
+    diffs = find_output_differences(baseline_map, current_map, matched_keys)
+    print_output_differences(diffs, total_matched)
+    print()
 
 
 # ===== Command-line interface =====

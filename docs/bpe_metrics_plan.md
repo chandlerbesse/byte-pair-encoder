@@ -7,8 +7,8 @@ what is left, and why key decisions were made. Update it in the same commit as t
 
 **Step 8: `compare <baseline> <current>`** (a new subcommand; `report` stays single-run).
 Roadmap: ~~8a CLI + load both files and show both summaries~~ (done); ~~8b match records and list unmatched
-configurations~~ (done); 8c fingerprint check; 8d comparison table (% change); 8e comparability warnings;
-8f (optional) look up files by label. Compare a run against a saved baseline, matching records by
+configurations~~ (done); ~~8c fingerprint check~~ (done); 8d comparison table (% change, plus a `≠`
+marker on rows whose outputs differ); 8e comparability warnings; 8f (optional) look up files by label. Compare a run against a saved baseline, matching records by
 `(size, k, impl)`: percent change in training/segmentation medians, a fingerprint check
 (`merges_sha256`, `seg_sha256`) that flags any output change, configurations present in only one file,
 and warnings when the runs aren't comparable (different rules, input hashes, repeats, or Python/NumPy
@@ -64,6 +64,8 @@ In recommended order:
 
 - Keep the laptop awake only while `run` benchmarks: Windows `SetThreadExecutionState` via `ctypes`
   (for now: set "device sleep when plugged in" to Never before long runs)
+- `compare`: a "can't verify" outcome for records without fingerprints, only if such a file ever appears
+- `compare`: section headings (e.g. "Configurations", "Outputs") if the output gets hard to scan after 8d/8e
 - Segment bar that counts segmentation runs (`on_run` hook in `track_time`), or shows the current k
 - Configuration grid view for partial runs in `report`
 - One-line docstrings for each function
@@ -110,6 +112,14 @@ In recommended order:
   configurations", plus unmatched ones grouped by size; stop with a message if none match.
 - **`compare` shows the two runs' summaries side by side** (field, baseline, current), so differing
   fields stand out; this grid is where step 8e's comparability warnings go.
+- **8c reports output differences and continues; it never stops** (2026-10-05): intentional rule changes
+  are expected to change outputs, and their timings should still be compared. `find_output_differences`
+  returns `{(size, k): {"merges", "segmentation"}}`, grouped by configuration rather than implementation
+  (run already checks that implementations agree). Shown as one line when all match, otherwise one line
+  per size: `size=10000: k=1000 (merges), k=5000 (merges, segmentation)`.
+- **Fingerprints are read directly (`record["merges_sha256"]`), not with `.get`**: every saved file has
+  them, and `.get` would make two missing values compare equal ("identical" without checking anything).
+  A missing field fails loudly with `KeyError`.
 - **Plots are opt-in (`--plot`) and the table always prints**: the table is instant and always useful;
   plots are files that take time to generate.
 
