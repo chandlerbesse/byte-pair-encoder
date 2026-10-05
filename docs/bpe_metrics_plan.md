@@ -6,8 +6,8 @@ what is left, and why key decisions were made. Update it in the same commit as t
 ## Next
 
 **Step 8: `compare <baseline> <current>`** (a new subcommand; `report` stays single-run).
-Roadmap: ~~8a CLI + load both files and show both summaries~~ (done); 8b match records and list unmatched
-configurations; 8c fingerprint check; 8d comparison table (% change); 8e comparability warnings;
+Roadmap: ~~8a CLI + load both files and show both summaries~~ (done); ~~8b match records and list unmatched
+configurations~~ (done); 8c fingerprint check; 8d comparison table (% change); 8e comparability warnings;
 8f (optional) look up files by label. Compare a run against a saved baseline, matching records by
 `(size, k, impl)`: percent change in training/segmentation medians, a fingerprint check
 (`merges_sha256`, `seg_sha256`) that flags any output change, configurations present in only one file,
@@ -101,6 +101,13 @@ In recommended order:
 - **The first implementation listed is the reference** for cross-checks and speedup.
 - **Comparing two runs is its own subcommand (`compare <baseline> <current>`)**, not a flag on `report`
   or `run`: `report` shows one run, `compare` shows two. (`run --baseline` could call it later.)
+- **`compare` matches records by (size, k, impl) regardless of inputs** (option A, 2026-10-05). Whether
+  two runs are comparable is decided in one place (8e) and shown as warnings, because future runs will
+  deliberately change preprocessing and tie-breaking but their training times should still be compared
+  with the baselines. Later, targeted markers (C-style) can flag individual metrics that can't be compared,
+  e.g. segmentation times when the segmentation texts differ; use a symbol other than `*` (taken by early stops).
+- **8b reports matching in configurations (size, k), not records**: "Matched N of M baseline
+  configurations", plus unmatched ones grouped by size; stop with a message if none match.
 - **`compare` shows the two runs' summaries side by side** (field, baseline, current), so differing
   fields stand out; this grid is where step 8e's comparability warnings go.
 - **Plots are opt-in (`--plot`) and the table always prints**: the table is instant and always useful;

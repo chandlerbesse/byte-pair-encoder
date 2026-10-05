@@ -252,6 +252,44 @@ def find_missing(meta, records):
     return sorted(missing)  # sets have no order; returns a list of tuples sorted by size, then k
 
 
+# ===== Comparing runs =====
+# Matching two runs' records and deciding what can be compared
+
+def map_records(records: list[dict]):
+    # {(size, k, impl): record}. Keys are unique in files written by run (one record per
+    # configuration and implementation); a duplicate key would silently keep only the last record.
+    return {(record["n_words"], record["k"], record["impl"]): record for record in records}  # a dict comprehension over records
+
+def match_records(baseline_records, current_records):
+    # {(size, k, impl): record} key-value pairs
+    baseline_map = map_records(baseline_records)
+    current_map = map_records(current_records)
+
+    # [(size, k, impl)] list of keys
+    matched = sorted(baseline_map.keys() & current_map.keys())        # keys in BOTH maps      (&)
+    only_baseline = sorted(baseline_map.keys() - current_map.keys())  # keys only in baseline  (-)
+    only_current = sorted(current_map.keys() - baseline_map.keys())   # keys only in current   (-)
+
+    return matched, only_baseline, only_current, baseline_map, current_map
+
+def configs_by_size(configs):
+    # {size: [k, ...]} from a collection of (size, k) pairs, sorted by size then k
+    grouped = {}
+    for size, k in sorted(configs):            # sorted: sets have no order
+        grouped.setdefault(size, []).append(k) # create an empty list the first time a size appears
+    return grouped
+
+def print_configs(title, configs):
+    # Prints a heading, then one line per size; or "(none)" when there are no configurations
+    if not configs:                            # an empty set counts as False
+        print(f"{title} (none)")
+        return                                 # stop here; nothing else to print
+    print(title)
+    for size, k_list in configs_by_size(configs).items():
+        k_text = ", ".join(str(k) for k in k_list)    # str(k): join needs strings
+        print(f"  size={size}: k={k_text}")
+
+
 # ===== Display: run =====
 # The live progress display and the result lines printed while run is working (these only affect how output looks)
 
@@ -619,6 +657,24 @@ def compare_command(args):
     console = Console()
 
     print_comparison_summary(baseline["meta"], current["meta"], console)
+
+    matched_keys, only_baseline_keys, only_current_keys, baseline_map, current_map = match_records(baseline["records"], current["records"])
+    
+    matched_configs = {(size, k) for size, k, _ in matched_keys}
+    baseline_configs = {(size, k) for size, k, _ in baseline_map}
+
+    total_matched = len(matched_configs)
+    total_baseline = len(baseline_configs)
+    
+    only_baseline_configs = {(size, k) for size, k, _ in only_baseline_keys}
+    only_current_configs = {(size, k) for size, k, _ in only_current_keys}
+
+    print(f"Matched {total_matched} of {total_baseline} baseline configurations")
+    print_configs("Only in baseline:", only_baseline_configs)
+    print_configs("Only in current:", only_current_configs)
+
+    if not matched_keys:
+        sys.exit("No configurations in common; nothing to compare")
 
 
 # ===== Command-line interface =====
