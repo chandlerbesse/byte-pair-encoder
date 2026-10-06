@@ -65,6 +65,15 @@ In recommended order:
 - Keep the laptop awake only while `run` benchmarks: Windows `SetThreadExecutionState` via `ctypes`
   (for now: set "device sleep when plugged in" to Never before long runs)
 - `compare`: a "can't verify" outcome for records without fingerprints, only if such a file ever appears
+- `compare` table, `≠` marker: try putting it on the change cells per output (training change when merges
+  differ, segmentation change when segmentation differs) instead of an `outputs` column
+- `compare` table, early stops: try "learned" columns (baseline and current) instead of only `*` on k
+- **After step 8: make the file easier to trace** (discussed 2026-10-06): (A) a map at the top of the file
+  (which functions each command calls) and a glossary of data shapes (record, meta, keys, maps, diffs,
+  timing_metrics), plus docstrings so VS Code's hover shows them; (B) remove duplication: `report`'s
+  missing-config block → `print_configs`, a "Display: shared" section for `format_seconds`/`format_ratio`,
+  a helper for `compare_command`'s config sets, overlap between `print_summary` and `summary_fields`.
+  Revisit splitting into modules (C) after that.
 - `compare`: section headings (e.g. "Configurations", "Outputs") if the output gets hard to scan after 8d/8e
 - Segment bar that counts segmentation runs (`on_run` hook in `track_time`), or shows the current k
 - Configuration grid view for partial runs in `report`

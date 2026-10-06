@@ -292,6 +292,39 @@ def find_output_differences(baseline_map, current_map, matched_keys):
 
     return diffs
 
+def get_comparison_metrics(baseline_map, current_map, matched_keys):
+    # {(size, k, impl): {"train_baseline_time", "train_current_time", "train_ratio",
+    #                    "seg_baseline_time", "seg_current_time", "seg_ratio",
+    #                    "baseline_k_learned", "current_k_learned"}}
+    # for each matched record: both runs' median times, ratios baseline / current
+    # (above 1 = current is faster, below 1 = slower; the same direction as report's speedup column),
+    # and how many merges each run learned (below k = stopped early)
+    timing_metrics = {}
+    for key in matched_keys:
+        baseline_record = baseline_map[key]
+        current_record = current_map[key]
+
+        baseline_train_median = statistics.median(baseline_record["train_times"])
+        baseline_seg_median = statistics.median(baseline_record["seg_times"])
+        current_train_median = statistics.median(current_record["train_times"])
+        current_seg_median = statistics.median(current_record["seg_times"])
+
+        train_ratio = baseline_train_median / current_train_median
+        seg_ratio = baseline_seg_median / current_seg_median
+
+        timing_metrics[key] = {
+            "train_baseline_time": baseline_train_median,
+            "train_current_time": current_train_median,
+            "train_ratio": train_ratio,
+            "seg_baseline_time": baseline_seg_median,
+            "seg_current_time": current_seg_median,
+            "seg_ratio": seg_ratio,
+            "baseline_k_learned": baseline_record["k_learned"],
+            "current_k_learned": current_record["k_learned"],
+        }
+
+    return timing_metrics
+
 def configs_by_size(configs):
     # {size: [k, ...]} from a collection of (size, k) pairs, sorted by size then k
     grouped = {}
@@ -346,6 +379,17 @@ def format_seconds(t):
     else:
         return f"{t * 1_000_000:.4f} us"
 
+def format_ratio(ratio):
+    # A speed ratio as text: 1.25 -> "1.25x faster", 0.8 -> "1.25x slower", 1.0 -> "no change"
+    # ratio is old time / new time (or reference / this): above 1 = faster, below 1 = slower
+    if ratio < 1:
+        ratio = 1 / ratio
+        return f"[bold red]{ratio:.2f}x slower[/bold red]"
+    elif ratio > 1:
+        return f"[bold blue]{ratio:.2f}x faster[/bold blue]"
+    else:
+        return "no change"
+
 def print_summary(meta, console):
     label = meta["label"] or "(not saved)"
     settings = meta["settings"]
@@ -387,7 +431,7 @@ def print_results_table(meta, records, console):
 
     # Interleave implementations: sort by size, then k, then each impl's position in settings (reference first)
     impl_order = {name: i for i, name in enumerate(impl_names)}
-    records = sorted(records, key=lambda record: (record["n_words"], record["k"], impl_order[record["impl"]]))
+    records = sorted(records, key=lambda record: (record["n_words"], record["k"], impl_order[record["impl"]])) # creates a sorted list of dictionaries
 
     table = Table(
         box=box.SIMPLE,
@@ -401,7 +445,7 @@ def print_results_table(meta, records, console):
     table.add_column("k", justify="right")
     table.add_column("impl")
     table.add_column("learned", justify="right")
-    table.add_column("train median", justify="right", style="blue")
+    table.add_column("train median", justify="right", style="green")
     table.add_column("train min", justify="right")
     table.add_column("train max", justify="right")
     table.add_column("spread", justify="right")  # (max - min) / median: how noisy the repeats were
@@ -417,7 +461,7 @@ def print_results_table(meta, records, console):
         spread = (max(train_times) - min(train_times)) / train_median  # the lower the percentage, the more consistent training was
 
         if record["k_learned"] < record["k"]:
-            k_learned = f"[bold italic]*{record['k_learned']}[/bold italic]"
+            k_learned = f"[bold italic yellow]*{record['k_learned']}[/bold italic yellow]"
         else:
             k_learned = str(record["k_learned"])
 
@@ -440,13 +484,8 @@ def print_results_table(meta, records, console):
                 row.append("")  # the reference isn't compared with itself
             else:
                 ratio = reference_medians[config] / train_median
-                if ratio < 1:
-                    ratio = 1 / ratio
-                    row.append(f"[bold red]{ratio:.2f}x slower[/bold red]")
-                elif ratio > 1:
-                    row.append(f"[bold green]{ratio:.2f}x faster[/bold green]")
-                else:
-                    row.append(f"{ratio:.2f}x (same)")
+                result = format_ratio(ratio)  # a string to be printed
+                row.append(result)
 
         # A blank line after the last row of each (size, k) group
         next_config = (records[i + 1]["n_words"], records[i + 1]["k"]) if i + 1 < len(records) else None
@@ -528,6 +567,84 @@ def print_output_differences(diffs: dict[tuple[int, int], set[str]], total_match
             parts.append(text)
 
         print(f"  size={size}: {', '.join(parts)}")
+
+def print_timing_table(timing_metrics, diffs, impl_names, console):
+    # One row per matched record: both runs' median times and the change, grouped by (size, k) like report's table.
+    # timing_metrics comes from get_comparison_metrics; diffs from find_output_differences (marks rows with ≠);
+    # impl_names is the baseline's settings["impls"], which sets the row order
+    impl_order = {name: i for i, name in enumerate(impl_names)}  # e.g. {"naive": 0, "vectorized": 1}
+
+    keys = sorted(timing_metrics, key=lambda record_key: (record_key[0], record_key[1], impl_order[record_key[2]])) 
+    # `key=` tells `sorted()` how to rank the items
+
+    # A record stopped early if either run learned fewer merges than k
+    def stopped_early(key):
+        k = key[1]
+        return timing_metrics[key]["baseline_k_learned"] < k or timing_metrics[key]["current_k_learned"] < k
+
+    any_early_stops = any(stopped_early(key) for key in keys)
+    show_outputs = bool(diffs)  # the outputs column only appears when some outputs differ
+
+    # Explain each marker below the table, only when it appears
+    caption_lines = []
+    if any_early_stops:
+        caption_lines.append("* stopped early in at least one run: no more pairs to merge")
+    if show_outputs:
+        caption_lines.append("≠ outputs differ between the runs (see the list above the table)")
+
+    table = Table(
+        box=box.SIMPLE,
+        header_style="bold italic",
+        row_styles=["", "dim"],
+        caption="\n".join(caption_lines) if caption_lines else None,
+        caption_justify="left",
+    )
+    table.add_column("size", justify="right")
+    table.add_column("k", justify="right")
+    table.add_column("impl")
+    table.add_column("train base", justify="right")
+    table.add_column("train curr", justify="right")
+    table.add_column("train change", justify="right")
+    table.add_column("seg base", justify="right")
+    table.add_column("seg curr", justify="right")
+    table.add_column("seg change", justify="right")
+    if show_outputs:
+        table.add_column("outputs", justify="center")
+
+    for i, key in enumerate(keys):
+        size, k, impl = key
+        timing = timing_metrics[key]  # this record's dict: "train_baseline_time", "train_current_time", "train_ratio", ...
+
+        if stopped_early(key):
+            k_text = f"[bold italic yellow]*{k}[/bold italic yellow]"  # same style as report's early-stop marker
+        else:
+            k_text = str(k)
+
+        row = [
+            str(size),
+            k_text,
+            impl,
+            format_seconds(timing["train_baseline_time"]),
+            format_seconds(timing["train_current_time"]),
+            format_ratio(timing["train_ratio"]),
+            format_seconds(timing["seg_baseline_time"]),
+            format_seconds(timing["seg_current_time"]),
+            format_ratio(timing["seg_ratio"]),
+        ]
+        if show_outputs:
+            row.append("≠" if (size, k) in diffs else "")  # diffs is keyed by (size, k)
+
+        config = key[:2]                       # this row's (size, k), e.g. (10000, 100)
+        if i + 1 < len(keys):                  # is there a next row?
+            next_config = keys[i + 1][:2]      # finds tuple (size, k, impl) in [i+1] and slices first 2 elements: (size, k)
+        else:
+            next_config = None                 # no matching next next_congif (used to print empty row)
+        table.add_row(*row, end_section=(next_config != config))
+
+        # one liner:
+        # next_config = keys[i + 1][:2] if (i + 1 < len(records)) else None
+
+    console.print(table)
 
 
 # ===== Commands =====
@@ -716,11 +833,14 @@ def compare_command(args):
     print_configs("Only in current:", only_current_configs)
 
     if not matched_keys:
-        sys.exit("No configurations in common; nothing to compare")
+        sys.exit("No configurations in common; nothing to compare\n")
 
     diffs = find_output_differences(baseline_map, current_map, matched_keys)
     print_output_differences(diffs, total_matched)
     print()
+
+    timing_metrics = get_comparison_metrics(baseline_map, current_map, matched_keys)
+    print_timing_table(timing_metrics, diffs, baseline["meta"]["settings"]["impls"], console)
 
 
 # ===== Command-line interface =====
