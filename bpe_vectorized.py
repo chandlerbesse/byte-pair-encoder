@@ -76,9 +76,9 @@ def apply_merge(padded_arr, pair, merge_id):
         padded_arr[:, :-1][mask] = merge_id
         padded_arr[:, 1:][mask] = -1
         
-        filtered_arr = [row[row != -1] for row in padded_arr]
-        padded_arr = build_padded_array(filtered_arr, -1)
-        # padded_arr = compact_array(padded_arr, invalid_val=-1)  # Uncomment later once I have baseline metrics
+        # filtered_arr = [row[row != -1] for row in padded_arr]
+        # padded_arr = build_padded_array(filtered_arr, -1)
+        padded_arr = compact_array(padded_arr, invalid_val=-1)  # Uncomment later once I have baseline metrics
         
     else:
         for row in padded_arr:
@@ -87,9 +87,9 @@ def apply_merge(padded_arr, pair, merge_id):
                     row[j] = merge_id
                     row[j + 1] = -1
 
-        filtered_arr = [row[row != -1] for row in padded_arr]
-        padded_arr = build_padded_array(filtered_arr, -1)
-        # padded_arr = compact_array(padded_arr, -1)  # Uncomment later once I have baseline metrics
+        # filtered_arr = [row[row != -1] for row in padded_arr]
+        # padded_arr = build_padded_array(filtered_arr, -1)
+        padded_arr = compact_array(padded_arr, -1)  # Uncomment later once I have baseline metrics
 
     return padded_arr
 
